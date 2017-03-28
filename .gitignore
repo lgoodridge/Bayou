@@ -1,0 +1,7 @@
+# Temp Files
+.*.sw*
+*~
+
+# Hidden Files
+.vagrant
+.*depend
