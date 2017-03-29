@@ -1,15 +1,17 @@
 package main
 
 import (
+    "time"
     "log"
     "database/sql"
     _ "github.com/mattn/go-sqlite3"
 )
 
-type TestItem struct {
-    Id  string
-    Name    string
-    Phone   string
+type Room struct {
+    Id          string
+    Name        string
+    StartTime   time.Time
+    EndTime     time.Time
 }
 
 func InitDB(filepath string) *sql.DB {
@@ -22,11 +24,11 @@ func InitDB(filepath string) *sql.DB {
 func CreateTable(db *sql.DB) {
     // create table if not exists
     sql_table := `
-    CREATE TABLE IF NOT EXISTS items(
+    CREATE TABLE IF NOT EXISTS rooms(
         Id TEXT NOT NULL PRIMARY KEY,
         Name TEXT,
-        Phone TEXT,
-        InsertedDatetime DATETIME
+        StartTime DATETIME,
+        EndTime DATETIME
     );
     `
 
@@ -34,14 +36,14 @@ func CreateTable(db *sql.DB) {
     if err != nil { panic(err) }
 }
 
-func StoreItem(db *sql.DB, items []TestItem) {
+func StoreItem(db *sql.DB, items []Room) {
     sql_additem := `
-    INSERT OR REPLACE INTO items(
+    INSERT OR REPLACE INTO rooms(
         Id,
         Name,
-        Phone,
-        InsertedDatetime
-    ) values(?, ?, ?, CURRENT_TIMESTAMP)
+        StartTime,
+        EndTime 
+    ) values(?, ?, ?, ?)
     `
 
     stmt, err := db.Prepare(sql_additem)
@@ -49,25 +51,27 @@ func StoreItem(db *sql.DB, items []TestItem) {
     defer stmt.Close()
 
     for _, item := range items {
-        _, err2 := stmt.Exec(item.Id, item.Name, item.Phone)
+        _, err2 := stmt.Exec(item.Id, item.Name,
+            item.StartTime, item.EndTime)
         if err2 != nil { panic(err2) }
     }
 }
 
-func ReadItem(db *sql.DB) []TestItem {
+func ReadItem(db *sql.DB) []Room {
     sql_readall := `
-    SELECT Id, Name, Phone FROM items
-    ORDER BY datetime(InsertedDatetime) DESC
+    SELECT Id, Name, StartTime, EndTime FROM rooms 
+    ORDER BY datetime(StartTime) DESC
     `
 
     rows, err := db.Query(sql_readall)
     if err != nil { panic(err) }
     defer rows.Close()
 
-    var result []TestItem
+    var result []Room
     for rows.Next() {
-        item := TestItem{}
-        err2 := rows.Scan(&item.Id, &item.Name, &item.Phone)
+        item := Room{}
+        err2 := rows.Scan(&item.Id, &item.Name,
+            &item.StartTime, &item.EndTime)
         if err2 != nil { panic(err2) }
         result = append(result, item)
     }
@@ -81,21 +85,27 @@ func main() {
     defer db.Close()
     CreateTable(db)
 
-    items := []TestItem{
-        TestItem{"1", "A", "213"},
-        TestItem{"2", "B", "214"},
+    items := []Room{
+        Room{"1", "Frist", time.Now(), time.Now()},
+        Room{"2", "Friend", time.Now(), time.Now()},
     }
     StoreItem(db, items)
 
     readItems := ReadItem(db)
-    log.Printf(readItems[0].Name)
+    for _, item := range(readItems) {
+        log.Printf(item.Name)
+    }
 
-    items2 := []TestItem{
-        TestItem{"1", "C", "215"},
-        TestItem{"3", "D", "216"},
+    log.Printf("Next Test")
+
+    items2 := []Room{
+        Room{"1", "Frist", time.Now(), time.Now()},
+        Room{"3", "Sherrard", time.Now(), time.Now()},
     }
     StoreItem(db, items2)
 
     readItems2 := ReadItem(db)
-    log.Printf(readItems2[0].Name)
+    for _, item := range(readItems2) {
+        log.Printf(item.Name)
+    }
 }
