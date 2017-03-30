@@ -2,7 +2,6 @@ package main
 
 import (
     "fmt"
-    "log"
     "math/rand"
     "time"
     "database/sql"
@@ -30,7 +29,8 @@ func CreateTable(db *sql.DB) {
         Id TEXT NOT NULL PRIMARY KEY,
         Name TEXT,
         StartTime DATETIME,
-        EndTime DATETIME
+        EndTime DATETIME,
+        Owner TEXT
     );
     `
 
@@ -80,17 +80,13 @@ func ReadItem(db *sql.DB) []Room {
     return result
 }
 func ReadItemInDateRange(db *sql.DB, start, end time.Time) []Room {
-//    sql_readall := `
-//    SELECT Id, Name, StartTime, EndTime FROM rooms 
-//    WHERE StartTime BETWEEN date('` + start.Format("15:04") + `') AND  date('` +
-//    end.Format("15:04") + `')
-//    ORDER BY datetime(StartTime) DESC
-//    `
-
+    startTxt := start.Format("2006-01-02 03:04")
+    endTxt   := end.Format("2006-01-02 03:04")
     sql_readall := `
     SELECT Id, Name, StartTime, EndTime FROM rooms 
-    WHERE StartTime BETWEEN "2000-01-02" AND "2000-01-03"
+    WHERE StartTime BETWEEN "` + startTxt + `" AND "` + endTxt + `" 
     `
+
     fmt.Println(sql_readall)
 
     rows, err := db.Query(sql_readall)
@@ -124,6 +120,24 @@ func createDate(day, hour int) time.Time {
     return time.Date(2000, 1, day, hour, 0, 0, 0, loc)
 }
 
+func claimRoom(db *sql.DB, name string, day, hour int) string {
+    startDate := createDate(day, hour)
+    endDate := createDate(day, hour + 1)
+
+    events := ReadItemInDateRange(db, startDate, endDate)
+    if events != nil {
+        return "Room already taken"
+    } else {
+        var r []Room
+        r = append(r, Room{string(nextID), name, startDate, endDate})
+        StoreItem(db, r)
+        nextID += 1
+        return ""
+    }
+}
+
+var nextID int
+
 func main() {
     // Seed the random generator so we get unique results
     rand.Seed(time.Now().Unix())
@@ -136,24 +150,19 @@ func main() {
     // Create the DB table
     CreateTable(db)
 
-    // Store 2 items
-    items := []Room{
-        Room{"1", "Frist", createDate(2, 1), createDate(1, 3)},
-        Room{"2", "Friend", createDate(1, 2), createDate(1, 4)},
+    err := claimRoom(db, "Frist", 1, 1)
+    if err != "" {
+        fmt.Println(err)
     }
-    StoreItem(db, items)
-
-    // Try and read selection of items
-    readItems :=  ReadItemInDateRange(db, createDate(0,0), createDate(0,5))
-    for _, item := range(readItems) {
-        log.Printf(item.Name)
+    err = claimRoom(db, "Frack", 4, 2)
+    if err != "" {
+        fmt.Println(err)
     }
-    fmt.Println("Done")
 
     // Read all items
     readItems2 := ReadItem(db)
     for _, item := range(readItems2) {
-        log.Printf(item.Name)
+        fmt.Println(item.Name)
         fmt.Println(item.StartTime)
     }
 }
