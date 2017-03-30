@@ -6,7 +6,6 @@ Reimplementation of Bayou for 518 projects.
 
 # David 
 
-* Get MySQL working
 * Write client update function
 * Write client resolve function
 * Framework for randon update/resolves
@@ -17,6 +16,10 @@ Reimplementation of Bayou for 518 projects.
 * Get Logical clock working
 * Write O vector
 * Write Log structure
+
+# Done
+
+* Get MySQL working
 
 # TODO
 

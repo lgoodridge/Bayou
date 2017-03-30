@@ -203,7 +203,7 @@ func main() {
     }
 
     // Read all items
-    readItems2 := ReadItem(db)
+    readItems2 := ReadAllItems(db)
     for _, item := range(readItems2) {
         fmt.Println(item.Name)
         fmt.Println(item.StartTime)
