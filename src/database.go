@@ -1,7 +1,6 @@
 package bayou
 
 import (
-    "log"
     "math/rand"
     "time"
     "database/sql"
@@ -20,8 +19,8 @@ type Room struct {
  */
 func InitDB(filepath string) *sql.DB {
     db, err := sql.Open("sqlite3", filepath)
-    if err != nil { log.Fatal(err) }
-    if db == nil { log.Fatal("db nil") }
+    if err != nil { Log.Fatal(err) }
+    if db == nil { Log.Fatal("db nil") }
     return db
 }
 
@@ -42,7 +41,7 @@ func CreateTable(db *sql.DB) {
     `
 
     _, err := db.Exec(sql_table)
-    if err != nil { log.Fatal(err) }
+    if err != nil { Log.Fatal(err) }
 }
 
 /*
@@ -61,13 +60,13 @@ func StoreItem(db *sql.DB, items []Room) {
     `
 
     stmt, err := db.Prepare(sql_additem)
-    if err != nil { log.Fatal(err) }
+    if err != nil { Log.Fatal(err) }
     defer stmt.Close()
 
     for _, item := range items {
         _, err2 := stmt.Exec(item.Id, item.Name,
             item.StartTime, item.EndTime)
-        if err2 != nil { log.Fatal(err2) }
+        if err2 != nil { Log.Fatal(err2) }
     }
 }
 
@@ -81,7 +80,7 @@ func ReadAllItems(db *sql.DB) []Room {
     `
 
     rows, err := db.Query(sql_readall)
-    if err != nil { log.Fatal(err) }
+    if err != nil { Log.Fatal(err) }
     defer rows.Close()
 
     var result []Room
@@ -89,7 +88,7 @@ func ReadAllItems(db *sql.DB) []Room {
         item := Room{}
         err2 := rows.Scan(&item.Id, &item.Name,
             &item.StartTime, &item.EndTime)
-        if err2 != nil { log.Fatal(err2) }
+        if err2 != nil { Log.Fatal(err2) }
         result = append(result, item)
     }
     return result
@@ -109,11 +108,11 @@ func ReadItemInDateRange(db *sql.DB, start, end time.Time) []Room {
     WHERE StartTime BETWEEN "` + startTxt + `" AND "` + endTxt + `"
     `
 
-    log.Println(sql_readall)
+    debugf(sql_readall + "\n")
 
     // Read the query out of the DB
     rows, err := db.Query(sql_readall)
-    if err != nil { log.Fatal(err) }
+    if err != nil { Log.Fatal(err) }
     defer rows.Close()
 
     // Read the query into a datastructure
@@ -122,7 +121,7 @@ func ReadItemInDateRange(db *sql.DB, start, end time.Time) []Room {
         item := Room{}
         err2 := rows.Scan(&item.Id, &item.Name,
             &item.StartTime, &item.EndTime)
-        if err2 != nil { log.Fatal(err2) }
+        if err2 != nil { Log.Fatal(err2) }
         result = append(result, item)
     }
     return result
@@ -139,7 +138,7 @@ func randDate() [2]time.Time {
 
     t[0] = createDate(startDay, startHour)
     t[1] = createDate(startDay, startHour + 1)
-    log.Println(t[0])
+    debugf("%s\n", t[0])
     return t
 }
 

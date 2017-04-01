@@ -12,7 +12,6 @@ Reimplementation of Bayou for 518 projects.
 
 # Lance 
 
-* Get RPC working
 * Get Logical clock working
 * Write O vector
 * Write Log structure
@@ -20,6 +19,7 @@ Reimplementation of Bayou for 518 projects.
 # Done
 
 * Get MySQL working
+* Get RPC working
 
 # TODO
 

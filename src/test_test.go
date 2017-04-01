@@ -1,7 +1,6 @@
 package bayou
 
 import (
-    "log"
     "math/rand"
     "time"
     "testing"
@@ -11,7 +10,6 @@ import (
  *    HELPER METHODS     *
  *************************/
 
-/* Performs necessary setup for the tests */
 func init() {
     rand.Seed(time.Now().Unix())
 }
@@ -39,17 +37,17 @@ func TestDBBasic(t *testing.T) {
 
     err := claimRoom(db, "Frist", 1, 1)
     if err != "" {
-        log.Println(err)
+        Log.Println(err)
     }
     err = claimRoom(db, "Friend", 4, 2)
     if err != "" {
-        log.Println(err)
+        Log.Println(err)
     }
 
     // Read all items
     readItems2 := ReadAllItems(db)
     for _, item := range(readItems2) {
-        log.Println(item.Name)
-        log.Println(item.StartTime)
+        Log.Println(item.Name)
+        Log.Println(item.StartTime)
     }
 }

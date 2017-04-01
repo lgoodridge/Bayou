@@ -1,7 +1,6 @@
 package bayou
 
 import (
-    "log"
     "net"
     "net/http"
     "net/rpc"
@@ -42,7 +41,7 @@ func startWCServer(port int) {
     rpc.HandleHTTP()
     listener, err := net.Listen("tcp", ":"+strconv.Itoa(port))
     if err != nil {
-        log.Fatal("Listen Failed: ", err)
+        Log.Fatal("Listen Failed: ", err)
     }
     go http.Serve(listener, nil)
 }
@@ -53,7 +52,7 @@ func startWCServer(port int) {
 func startWCClient(port int) *rpc.Client {
     client, err := rpc.DialHTTP("tcp", "localhost:"+strconv.Itoa(port))
     if err != nil {
-        log.Fatal("Failed to connect to server: ", err)
+        Log.Fatal("Failed to connect to server: ", err)
     }
     return client
 }
@@ -69,7 +68,7 @@ func sendRPC(client *rpc.Client, message string, async bool) int {
     if !async {
         err := client.Call("WC.WordCount", &args, &reply)
         if err != nil {
-            log.Fatal("WordCount RPC Failed: ", err)
+            Log.Fatal("WordCount RPC Failed: ", err)
         }
 
     // Send RPC asynchronously
@@ -78,7 +77,7 @@ func sendRPC(client *rpc.Client, message string, async bool) int {
         // Blocks until call is completed
         <-wcCall.Done
         if wcCall.Error != nil {
-            log.Fatal("WordCount RPC Failed: ", wcCall.Error)
+            Log.Fatal("WordCount RPC Failed: ", wcCall.Error)
         }
     }
 
@@ -95,7 +94,6 @@ var serverStarted bool
 /* Port server listens to RPCs on */
 var port int
 
-/* Performs setup for the rpc tests */
 func init() {
     port = 1234
     startWCServer(port)
