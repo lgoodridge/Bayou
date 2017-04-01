@@ -1,7 +1,7 @@
-package main
+package bayou
 
 import (
-    "fmt"
+    "log"
     "math/rand"
     "time"
     "database/sql"
@@ -20,12 +20,12 @@ type Room struct {
  */
 func InitDB(filepath string) *sql.DB {
     db, err := sql.Open("sqlite3", filepath)
-    if err != nil { panic(err) }
-    if db == nil { panic("db nil") }
+    if err != nil { log.Fatal(err) }
+    if db == nil { log.Fatal("db nil") }
     return db
 }
 
-/* 
+/*
  * Creates a Database table if one
  * does not exist already
  */
@@ -42,12 +42,12 @@ func CreateTable(db *sql.DB) {
     `
 
     _, err := db.Exec(sql_table)
-    if err != nil { panic(err) }
+    if err != nil { log.Fatal(err) }
 }
 
 /*
  * Stores a list of items in the Database.
- * If the item exists already it will be 
+ * If the item exists already it will be
  * overwritten
 */
 func StoreItem(db *sql.DB, items []Room) {
@@ -56,18 +56,18 @@ func StoreItem(db *sql.DB, items []Room) {
         Id,
         Name,
         StartTime,
-        EndTime 
+        EndTime
     ) values(?, ?, ?, ?)
     `
 
     stmt, err := db.Prepare(sql_additem)
-    if err != nil { panic(err) }
+    if err != nil { log.Fatal(err) }
     defer stmt.Close()
 
     for _, item := range items {
         _, err2 := stmt.Exec(item.Id, item.Name,
             item.StartTime, item.EndTime)
-        if err2 != nil { panic(err2) }
+        if err2 != nil { log.Fatal(err2) }
     }
 }
 
@@ -76,12 +76,12 @@ func StoreItem(db *sql.DB, items []Room) {
  */
 func ReadAllItems(db *sql.DB) []Room {
     sql_readall := `
-    SELECT Id, Name, StartTime, EndTime FROM rooms 
+    SELECT Id, Name, StartTime, EndTime FROM rooms
     ORDER BY datetime(StartTime) DESC
     `
 
     rows, err := db.Query(sql_readall)
-    if err != nil { panic(err) }
+    if err != nil { log.Fatal(err) }
     defer rows.Close()
 
     var result []Room
@@ -89,14 +89,14 @@ func ReadAllItems(db *sql.DB) []Room {
         item := Room{}
         err2 := rows.Scan(&item.Id, &item.Name,
             &item.StartTime, &item.EndTime)
-        if err2 != nil { panic(err2) }
+        if err2 != nil { log.Fatal(err2) }
         result = append(result, item)
     }
     return result
 }
 
 /*
- * Returns only the database items between the start and the 
+ * Returns only the database items between the start and the
  * end times provided
  */
 func ReadItemInDateRange(db *sql.DB, start, end time.Time) []Room {
@@ -105,15 +105,15 @@ func ReadItemInDateRange(db *sql.DB, start, end time.Time) []Room {
     endTxt   := end.Format("2006-01-02 03:04")
     // build the SQL query string
     sql_readall := `
-    SELECT Id, Name, StartTime, EndTime FROM rooms 
-    WHERE StartTime BETWEEN "` + startTxt + `" AND "` + endTxt + `" 
+    SELECT Id, Name, StartTime, EndTime FROM rooms
+    WHERE StartTime BETWEEN "` + startTxt + `" AND "` + endTxt + `"
     `
 
-    fmt.Println(sql_readall)
+    log.Println(sql_readall)
 
     // Read the query out of the DB
     rows, err := db.Query(sql_readall)
-    if err != nil { panic(err) }
+    if err != nil { log.Fatal(err) }
     defer rows.Close()
 
     // Read the query into a datastructure
@@ -122,13 +122,13 @@ func ReadItemInDateRange(db *sql.DB, start, end time.Time) []Room {
         item := Room{}
         err2 := rows.Scan(&item.Id, &item.Name,
             &item.StartTime, &item.EndTime)
-        if err2 != nil { panic(err2) }
+        if err2 != nil { log.Fatal(err2) }
         result = append(result, item)
     }
     return result
 }
 
-/* 
+/*
  * Returns random start and end time of event within a week
  * All events last for 1 hour
  */
@@ -139,7 +139,7 @@ func randDate() [2]time.Time {
 
     t[0] = createDate(startDay, startHour)
     t[1] = createDate(startDay, startHour + 1)
-    fmt.Println(t[0])
+    log.Println(t[0])
     return t
 }
 
@@ -153,6 +153,8 @@ func createDate(day, hour int) time.Time {
     return time.Date(2000, 1, day, hour, 0, 0, 0, loc)
 }
 
+var nextID int
+
 /*
  * Attempts to claim a room with the given name,
  * day, and hour.
@@ -162,7 +164,7 @@ func claimRoom(db *sql.DB, name string, day, hour int) string {
     startDate := createDate(day, hour)
     endDate := createDate(day, hour + 1)
 
-    // TODO: we need to check that conflict with the 
+    // TODO: we need to check that conflict with the
     // actual room name
     events := ReadItemInDateRange(db, startDate, endDate)
 
@@ -176,36 +178,5 @@ func claimRoom(db *sql.DB, name string, day, hour int) string {
         StoreItem(db, r)
         nextID += 1
         return ""
-    }
-}
-
-var nextID int
-
-func main() {
-    // Seed the random generator so we get unique results
-    rand.Seed(time.Now().Unix())
-
-    // Open the Datapath
-    const dbpath = "foo.db"
-    db := InitDB(dbpath)
-    defer db.Close()
-
-    // Create the DB table
-    CreateTable(db)
-
-    err := claimRoom(db, "Frist", 1, 1)
-    if err != "" {
-        fmt.Println(err)
-    }
-    err = claimRoom(db, "Friend", 4, 2)
-    if err != "" {
-        fmt.Println(err)
-    }
-
-    // Read all items
-    readItems2 := ReadAllItems(db)
-    for _, item := range(readItems2) {
-        fmt.Println(item.Name)
-        fmt.Println(item.StartTime)
     }
 }

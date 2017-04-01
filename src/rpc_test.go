@@ -95,25 +95,14 @@ var serverStarted bool
 /* Port server listens to RPCs on */
 var port int
 
-/* Fails provided test if a and b are not equal */
-func assertEqual(t *testing.T, a interface{}, b interface{}, message string) {
-    if a != b {
-        t.Fatal(message)
-    }
-}
-
 /* Performs setup for the rpc tests */
-func rpcTestInit() {
-    if !serverStarted {
-        port = 1234
-        startWCServer(port)
-        serverStarted = true
-    }
+func init() {
+    port = 1234
+    startWCServer(port)
 }
 
 /* Tests a single synchronous and asynchronous WordCount RPC */
 func TestRPCBasic(t *testing.T) {
-    rpcTestInit()
     client := startWCClient(port)
     defer client.Close()
 
@@ -126,7 +115,6 @@ func TestRPCBasic(t *testing.T) {
 
 /* Tests concurrent WordCount RPCs */
 func TestRPCConcurrent(t *testing.T) {
-    rpcTestInit()
     client1 := startWCClient(port)
     client2 := startWCClient(port)
     client3 := startWCClient(port)

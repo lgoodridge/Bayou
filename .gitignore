@@ -2,6 +2,9 @@
 .*.sw*
 *~
 
+# Build files
+*.db
+
 # Hidden Files
 .vagrant
 .*depend
