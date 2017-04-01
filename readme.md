@@ -4,13 +4,13 @@ Authors: Lance Goodridge, David Gilhooley
 
 Reimplementation of Bayou for 518 projects.
 
-# David 
+# David
 
 * Write client update function
 * Write client resolve function
 * Framework for randon update/resolves
 
-# Lance 
+# Lance
 
 * Get Logical clock working
 * Write O vector
@@ -23,9 +23,9 @@ Reimplementation of Bayou for 518 projects.
 
 # TODO
 
-* Tuple Storage 
+* Tuple Storage
 * Update Function
-    * Dependency Checking 
+    * Dependency Checking
 * Server Logs -- All Write operations, sorted by Timestamp + commited or not
 * Timestamp vectors
     * Logical Clock Simulation
