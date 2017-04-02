@@ -20,8 +20,17 @@ type BayouServer struct {
 	// Represents the other bayou servers
 	peers []*rpc.Client
 
+	// Interfaces with the server's database
+	db *sql.DB
+
 	// Current logical time
 	currTime VectorClock
+
+	// Whether this server is the primary
+	IsPrimary bool
+
+	// Index of latest committed log entry
+	CommitIndex int
 
 	// Stores all written ops and their corresponding undo ops
 	WriteLog []LogEntry
@@ -40,13 +49,8 @@ type VectorClock []int
 /* Represents an entry in a Bayou server log */
 type LogEntry struct {
 	WriteID	  int
-	Committed bool
 	Timestamp VectorClock
 }
-
-/* Implements sort interface for log entries      *
- * Sorts by committed vs. tentative, then by time */
-type ByCommitedAndTime []LogEntry
 
 /* AntiEntropy RPC arguments structure */
 type AntiEntropyArgs struct {
@@ -71,6 +75,13 @@ type mergeproc func(*sql.DB)
 /****************************
  *   BAYOU SERVER METHODS   *
  ****************************/
+
+/* TODO:
+ * Constructor
+ * Bayou_Read
+ * Bayou_Write
+ * Bayou_Rollback
+ */
 
 /****************************
  *   VECTOR CLOCK METHODS   *
@@ -100,6 +111,8 @@ func (vc VectorClock) Inc(idx int) {
  * strictly "less than" the other one   */
 func (vc VectorClock) LessThan(other VectorClock) bool {
 	if len(vc) != len(other) {
+		debugf("WARNING: Vector clocks of different lengths were compared:\n" +
+			"This: " + vc.String() + "\tOther: " + other.String())
 		return false
 	}
 	// vc is less than other iff each logical time is less
@@ -117,12 +130,23 @@ func (vc VectorClock) LessThan(other VectorClock) bool {
 	return strictly_less_seen
 }
 
+/* Sets all logical clocks to the max of  *
+ * this and the other VC's logical clocks */
+func (vc VectorClock) Max(other VectorClock) {
+	if len(vc) != len(other) {
+		debugf("WARNING: Vector clocks of different lengths were maxed:\n" +
+			"This: " + vc.String() + "\tOther: " + other.String())
+	}
+	for idx, _ := range other {
+		if idx >= len(vc) {
+			vc = append(vc, other[idx])
+		} else if vc[idx] < other[idx] {
+			vc[idx] = other[idx]
+		}
+	}
+}
+
 func (vc VectorClock) String() string {
 	return "VC: " +  strings.Trim(strings.Replace(fmt.Sprint(([]int)(vc)),
 		" ", ", ", -1), "[]")
 }
-
-/***************************
- *   LOG SORTING METHODS   *
- ***************************/
-

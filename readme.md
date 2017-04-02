@@ -2,7 +2,7 @@
 
 Authors: Lance Goodridge, David Gilhooley
 
-Reimplementation of Bayou for 518 projects.
+Reimplementation of Bayou for COS 518 project.
 
 # David
 
@@ -12,14 +12,14 @@ Reimplementation of Bayou for 518 projects.
 
 # Lance
 
-* Get Logical clock working
-* Write O vector
-* Write Log structure
+* Write Bayou Read and Write functions
+* Figure out server persistence
 
 # Done
 
 * Get MySQL working
 * Get RPC working
+* Get Logical clock working
 
 # TODO
 

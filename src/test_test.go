@@ -120,4 +120,11 @@ func TestVectorClock(t *testing.T) {
     assert(t, !greater.LessThan(vc), "LessThan returned true for greater VC")
     assert(t, !equal.LessThan(vc), "LessThan returned true for equal VC")
     assert(t, less.LessThan(vc), "LessThan returned false for lesser VC")
+
+    // Ensure Max works as expected
+    other := VectorClock{5, 5, 2, 2}
+    vc.Max(other)
+    assertVCEqual(t, vc, VectorClock{6, 5, 2, 2})
+    // Ensure other wasn't affected
+    assertVCEqual(t, other, VectorClock{5, 5, 2, 2})
 }
