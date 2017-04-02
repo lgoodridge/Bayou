@@ -3,11 +3,25 @@ package bayou
 import (
 	"errors"
 	"fmt"
+	"net"
+	"net/http"
 	"net/rpc"
 	"strings"
+	"sync"
 	"database/sql"
 	_ "github.com/mattn/go-sqlite3"
 )
+
+/*****************
+ *   CONSTANTS   *
+ *****************/
+
+// TODO: Give these actual values, and implement checkpointing
+/* Save a database checkpoint after these many tentative writes */
+const OPS_PER_CHECKPOINT int = -1
+/* Save these many checkpoints (thus, you can rollback a *
+ * maximum of NUM_CHECKPOINTS * OPS_PER_CHECKPOINT ops)  */
+const NUM_CHECKPOINTS int = -1
 
 /************************
  *   TYPE DEFINITIONS   *
@@ -20,11 +34,24 @@ type BayouServer struct {
 	// Represents the other bayou servers
 	peers []*rpc.Client
 
+	// Whether this server is active
+	isActive bool
+
 	// Interfaces with the server's database
+	// TODO: Figure out whether to have two dbs, or have custom
+	// database class implement committed / full views there
 	db *sql.DB
 
+	// Listener for shutting down the RPC server
+	rpcListener net.Listener
+
 	// Current logical time
-	currTime VectorClock
+	currentTime VectorClock
+
+	// Various locks
+	dbLock		*sync.Mutex
+	logLock		*sync.Mutex
+	persistLock *sync.Mutex
 
 	// Whether this server is the primary
 	IsPrimary bool
@@ -32,14 +59,15 @@ type BayouServer struct {
 	// Index of latest committed log entry
 	CommitIndex int
 
-	// Stores all written ops and their corresponding undo ops
+	// Stores ops: committed, lower timestamp entries are at the head
 	WriteLog []LogEntry
+	// Stores undo operations for all tentative ops
 	UndoLog	 []LogEntry
 	// Operations that conflict and fail to merge are stored here
 	ErrorLog []LogEntry
 
-	// Maintains ID of latest write discarded from each server
-	Omitted	[]int
+	// Maintains timestamp of latest write discarded from each server
+	Omitted	VectorClock
 }
 
 /* Vector Clock: parallel array holding a monotonically *
@@ -50,6 +78,7 @@ type VectorClock []int
 type LogEntry struct {
 	WriteID	  int
 	Timestamp VectorClock
+	Op		  Operation
 }
 
 /* AntiEntropy RPC arguments structure */
@@ -60,28 +89,146 @@ type AntiEntropyArgs struct {
 type AntiEntropyReply struct {
 }
 
-/* Update or Undo function type:	  *
- * Takes a database, and returns void */
-type operation func(*sql.DB)
+/* Bayou Read RPC arguments structure */
+type ReadArgs struct {
+}
 
-/* Dependency check function type:      *
- * Takes a database, and returns a bool */
-type depcheck func(*sql.DB) bool
+/* Bayou Read RPC arguments structure */
+type ReadReply struct {
+}
 
-/* Merge process function type:       *
- * Takes a database, and returns void */
-type mergeproc func(*sql.DB)
+/* Bayou Write RPC arguments structure */
+type WriteArgs struct{
+}
+
+/* Bayou Write RPC reply structure */
+type WriteReply struct{
+}
+
+/* Update or Undo operation type			   *
+ * Contains a function operating on the		   *
+ * database and a description of that function */ 
+type Operation struct {
+	Op	   func(*sql.DB)
+	Desc   string
+}
+
+/* Dependency check function type:   *
+ * Takes a database, and returns     *
+ * whether the dependencies are held */
+type DepCheck func(*sql.DB) bool
+
+/* Merge process function type:      *
+ * Takes a database, and returns	 *
+ * whether the conflict was resolved */
+type MergeProc func(*sql.DB) bool
+
+/* Read function type:                       *
+ * Takes a database, and returns some result */
+type ReadFunc func(*sql.DB) interface{}
 
 /****************************
  *   BAYOU SERVER METHODS   *
  ****************************/
 
-/* TODO:
- * Constructor
- * Bayou_Read
- * Bayou_Write
- * Bayou_Rollback
- */
+ /* Returns a new Bayou Server				 *
+ * Loads initial data and starts RPC handler */
+func NewBayouServer(id int, peers []*rpc.Client,
+		db *sql.DB, port int) *BayouServer {
+	server := &BayouServer{}
+	server.id = id
+	server.peers = peers
+	server.db = db
+
+	// Set Initial State
+	server.isActive = true
+	server.currentTime = NewVectorClock(len(peers))
+	server.dbLock = &sync.Mutex{}
+	server.logLock = &sync.Mutex{}
+	server.persistLock = &sync.Mutex{}
+	server.IsPrimary = false
+	server.CommitIndex = 0
+	server.Omitted = NewVectorClock(len(peers))
+
+	// TODO: Load persistent data
+
+	// Start RPC server
+	server.startRPCServer(port)
+
+	debugf("Initialized Bayou Server #%d", server.id)
+	return server
+}
+
+/* Formally "begins" a Bayou Server									*
+ * Starts inter-server communication and other tasks				*
+ * Starts go-routines for long-running work and returns immediately */
+func (server *BayouServer) Begin() {
+	// TODO: Start Anti-Entropy communication
+	debugf("Server $%d begun", server.id)
+}
+
+/* "Kills" a Bayou Server, ending inter-server *
+ * communication and RPC handling              */
+func (server *BayouServer) Kill() {
+	server.isActive = false
+	server.rpcListener.Close()
+}
+
+/* Anti-Entropy RPC Handler */
+func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
+		reply *AntiEntropyArgs) {
+}
+
+/* Bayou Read RPC Handler */
+func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) {
+}
+
+/* Bayou Write RPC Handler */
+func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) {
+}
+
+/* Starts serving RPCs on the provided port */
+func (server *BayouServer) startRPCServer(port int) {
+	rpcServer := rpc.NewServer()
+	rpcServer.Register(server)
+
+	// RPCs handlers are registered to the default server mux,
+	// so temporarily change it to allow multiple registrations
+	oldMux := http.DefaultServeMux
+	newMux := http.NewServeMux()
+	http.DefaultServeMux = newMux
+
+	// Register RPC handler, and restore default serve mux
+	rpcServer.HandleHTTP(rpc.DefaultRPCPath, rpc.DefaultDebugPath)
+	http.DefaultServeMux = oldMux
+
+	// Listen and serve on the specified port
+	var err error
+	server.rpcListener, err = net.Listen("tcp", fmt.Sprintf(":%d", port))
+	if err != nil {
+		Log.Fatal("Listen Failed: ", err)
+	}
+	go http.Serve(server.rpcListener, newMux)
+	
+	debugf("Server #%d listening on port %d", server.id, port)
+}
+
+/* Applies an operation to the server's database        *
+ * If toCommit is true, it is applied to the server's   *
+ * commit view, else it is applied to the full view     *
+ * Returns whether there was a conflict, and if so,     *
+ * whether it was resolved                              */
+func (server *BayouServer) applyToDB(toCommit bool, op Operation, 
+		dc DepCheck, merge MergeProc) (hasConflict bool, resolved bool) {
+	// TODO
+	return false, false
+}
+
+/* Rolls back the full view to just after    *
+ * the log entry with the specified write ID */
+func (server *BayouServer) rollbackDB(rollbackPoint int) {
+}
+
 
 /****************************
  *   VECTOR CLOCK METHODS   *
@@ -137,6 +284,8 @@ func (vc VectorClock) Max(other VectorClock) {
 		debugf("WARNING: Vector clocks of different lengths were maxed:\n" +
 			"This: " + vc.String() + "\tOther: " + other.String())
 	}
+	// Update logical clock if other one is higher,
+	// or append to vector clock if other one is longer
 	for idx, _ := range other {
 		if idx >= len(vc) {
 			vc = append(vc, other[idx])
@@ -150,3 +299,20 @@ func (vc VectorClock) String() string {
 	return "VC: " +  strings.Trim(strings.Replace(fmt.Sprint(([]int)(vc)),
 		" ", ", ", -1), "[]")
 }
+
+/*******************
+ *   LOG METHODS   *
+ *******************/
+
+func logToString(log []LogEntry) string {
+	logStr := ""
+	for _, entry := range log {
+		logStr = logStr + entry.String() + "\n"
+	}
+	return logStr
+}
+
+func (entry LogEntry) String() string {
+	return fmt.Sprintf("#%d: ", entry.WriteID) + entry.Op.Desc
+}
+
