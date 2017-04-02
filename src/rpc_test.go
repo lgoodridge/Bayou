@@ -125,7 +125,7 @@ func TestRPCBasic(t *testing.T) {
 
 /* Tests concurrent WordCount RPCs */
 func TestRPCConcurrent(t *testing.T) {
-	port := 1234
+	port := 2345
 	closer := startWCServer(port)
 	defer closer.Close()
 
@@ -167,8 +167,8 @@ func TestRPCConcurrent(t *testing.T) {
 
 /* Tests multiple servers listening on different ports */
 func TestRPCMultipleServers(t *testing.T) {
-	port1 := 1234
-	port2 := 5678
+	port1 := 3456
+	port2 := 4567
 	closer1 := startWCServer(port1)
 	closer2 := startWCServer(port2)
 	defer closer1.Close()

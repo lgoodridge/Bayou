@@ -12,9 +12,9 @@ import (
 /* Whether to display debug output */
 const DEBUG_MODE bool = false
 
-/********************
- *    UTILITIES     *
- ********************/
+/****************************
+ *    LOGGING UTILITIES     *
+ ****************************/
 
 /* Custom logger (prints without timestamp) */
 var Log *log.Logger
