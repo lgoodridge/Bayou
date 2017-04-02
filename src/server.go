@@ -105,8 +105,8 @@ type WriteArgs struct{
 type WriteReply struct{
 }
 
-/* Update or Undo operation type			   *
- * Contains a function operating on the		   *
+/* Update or Undo operation type               *
+ * Contains a function operating on the        *
  * database and a description of that function */ 
 type Operation struct {
 	Op	   func(*sql.DB)
@@ -119,7 +119,7 @@ type Operation struct {
 type DepCheck func(*sql.DB) bool
 
 /* Merge process function type:      *
- * Takes a database, and returns	 *
+ * Takes a database, and returns     *
  * whether the conflict was resolved */
 type MergeProc func(*sql.DB) bool
 
@@ -131,7 +131,7 @@ type ReadFunc func(*sql.DB) interface{}
  *   BAYOU SERVER METHODS   *
  ****************************/
 
- /* Returns a new Bayou Server				 *
+ /* Returns a new Bayou Server               *
  * Loads initial data and starts RPC handler */
 func NewBayouServer(id int, peers []*rpc.Client,
 		db *sql.DB, port int) *BayouServer {
@@ -159,8 +159,8 @@ func NewBayouServer(id int, peers []*rpc.Client,
 	return server
 }
 
-/* Formally "begins" a Bayou Server									*
- * Starts inter-server communication and other tasks				*
+/* Formally "begins" a Bayou Server                                 *
+ * Starts inter-server communication and other tasks                *
  * Starts go-routines for long-running work and returns immediately */
 func (server *BayouServer) Begin() {
 	// TODO: Start Anti-Entropy communication
@@ -213,11 +213,11 @@ func (server *BayouServer) startRPCServer(port int) {
 	debugf("Server #%d listening on port %d", server.id, port)
 }
 
-/* Applies an operation to the server's database        *
- * If toCommit is true, it is applied to the server's   *
- * commit view, else it is applied to the full view     *
- * Returns whether there was a conflict, and if so,     *
- * whether it was resolved                              */
+/* Applies an operation to the server's database      *
+ * If toCommit is true, it is applied to the server's *
+ * commit view, else it is applied to the full view   *
+ * Returns whether there was a conflict, and if so,   *
+ * whether it was resolved                            */
 func (server *BayouServer) applyToDB(toCommit bool, op Operation, 
 		dc DepCheck, merge MergeProc) (hasConflict bool, resolved bool) {
 	// TODO
