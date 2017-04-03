@@ -6,9 +6,14 @@ Reimplementation of Bayou for COS 518 project.
 
 # David
 
-* Write client update function
-* Write client resolve function
-* Framework for random update/resolves
+* Get persistant storage working
+  * https://blog.golang.org/gobs-of-data
+  * Commit/Tenative log
+  * IsPrimary
+  * CommitIndex
+  * UndoLog
+  * Ommited
+  * Error Log
 
 # Lance
 
@@ -20,6 +25,9 @@ Reimplementation of Bayou for COS 518 project.
 * Get MySQL working
 * Get RPC working
 * Get Logical clock working
+* Write client update function
+* Write client resolve function
+* Framework for random update/resolves
 
 # TODO
 
