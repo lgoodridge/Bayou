@@ -98,7 +98,8 @@ func ReadAllItems(db *sql.DB) []Room {
  * Returns only the database items between the start and the
  * end times provided
  */
-func ReadItemInDateRange(db *sql.DB, start, end time.Time) []Room {
+func ReadItemInDateRange(db *sql.DB, name string, start, end time.Time) []Room {
+    fmt.Println("TODO lol: " + name)
     // get the dates into the correct format
     startTxt := start.Format("2006-01-02 03:04")
     endTxt   := end.Format("2006-01-02 03:04")
