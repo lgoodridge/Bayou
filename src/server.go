@@ -37,10 +37,10 @@ type BayouServer struct {
 	// Whether this server is active
 	isActive bool
 
-	// Interfaces with the server's database
-	// TODO: Figure out whether to have two dbs, or have custom
-	// database class implement committed / full views there
-	db *sql.DB
+	// Holds the server's stable state
+	commitDB *sql.DB
+	// Holds all (committed and tentative) server state
+	fullDB	 *sql.DB
 
 	// Listener for shutting down the RPC server
 	rpcListener net.Listener
@@ -98,19 +98,25 @@ type ReadReply struct {
 }
 
 /* Bayou Write RPC arguments structure */
-type WriteArgs struct{
+type WriteArgs struct {
+	WriteID int
+	Op	    Operation
+	Check   DepCheck
+	Merge   MergeProc
 }
 
 /* Bayou Write RPC reply structure */
-type WriteReply struct{
+type WriteReply struct {
+	HasConflict bool
+	WasResolved bool
 }
 
 /* Update or Undo operation type               *
  * Contains a function operating on the        *
  * database and a description of that function */ 
 type Operation struct {
-	Op	   func(*sql.DB)
-	Desc   string
+	Query func(*sql.DB)
+	Desc  string
 }
 
 /* Dependency check function type:   *
@@ -133,12 +139,13 @@ type ReadFunc func(*sql.DB) interface{}
 
  /* Returns a new Bayou Server               *
  * Loads initial data and starts RPC handler */
-func NewBayouServer(id int, peers []*rpc.Client,
-		db *sql.DB, port int) *BayouServer {
+func NewBayouServer(id int, peers []*rpc.Client, commitDB *sql.DB,
+		fullDB *sql.DB, port int) *BayouServer {
 	server := &BayouServer{}
 	server.id = id
 	server.peers = peers
-	server.db = db
+	server.commitDB = commitDB
+	server.fullDB = fullDB
 
 	// Set Initial State
 	server.isActive = true
@@ -219,9 +226,29 @@ func (server *BayouServer) startRPCServer(port int) {
  * Returns whether there was a conflict, and if so,   *
  * whether it was resolved                            */
 func (server *BayouServer) applyToDB(toCommit bool, op Operation, 
-		dc DepCheck, merge MergeProc) (hasConflict bool, resolved bool) {
-	// TODO
-	return false, false
+		depcheck DepCheck, merge MergeProc) (hasConflict bool, resolved bool) {
+	// Get the server to apply the operation on
+	db := server.fullDB
+	if toCommit {
+		db = server.commitDB
+	}
+
+	// If there is no dependency conflicts, apply the operation to
+	// the database. If there is, try to apply the merge function
+	if (depcheck(db)) {
+		op.Query(db)
+		hasConflict = false
+		resolved = true
+	} else {
+		hasConflict = true
+		if (merge(db)) {
+			resolved = true
+		} else {
+			resolved = false
+		}
+	}
+
+	return
 }
 
 /* Rolls back the full view to just after    *
