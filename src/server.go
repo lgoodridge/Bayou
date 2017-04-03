@@ -68,11 +68,6 @@ type BayouServer struct {
 
 	// Maintains timestamp of latest write discarded from each server
 	Omitted	VectorClock
-
-    // DB of committed + uncommitted Writes
-    fullDB *sql.DB
-    // DB of committed Writes
-    committedDB *sql.DB
 }
 
 /* Vector Clock: parallel array holding a monotonically *
@@ -96,13 +91,13 @@ type AntiEntropyReply struct {
 
 /* Bayou Read RPC arguments structure */
 type ReadArgs struct {
-    fun ReadFunc
-    committedDB bool
+    Fun		 ReadFunc
+    ToCommit bool
 }
 
 /* Bayou Read RPC arguments structure */
 type ReadReply struct {
-    data interface{}
+    Data interface{}
 }
 
 /* Bayou Write RPC arguments structure */
@@ -145,7 +140,7 @@ type ReadFunc func(*sql.DB) interface{}
  *   BAYOU SERVER METHODS   *
  ****************************/
 
- /* Returns a new Bayou Server               *
+/* Returns a new Bayou Server                *
  * Loads initial data and starts RPC handler */
 func NewBayouServer(id int, peers []*rpc.Client, commitDB *sql.DB,
 		fullDB *sql.DB, port int) *BayouServer {
@@ -196,12 +191,13 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
 
 /* Bayou Read RPC Handler */
 func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) {
-    if (commitedDB) {
-        data := args.fun(server.committedDB)
+	var data interface{}
+    if (args.ToCommit) {
+        data = args.Fun(server.commitDB)
     } else {
-        data := args.fun(server.fullDB)
+        data = args.Fun(server.fullDB)
     }
-    reply.data = data
+    reply.Data = data
 }
 
 /* Bayou Write RPC Handler */

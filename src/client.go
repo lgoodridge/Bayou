@@ -1,53 +1,57 @@
 package bayou
 
 import (
-	"net/http"
 	"net/rpc"
+	"strconv"
     "database/sql"
     _ "github.com/mattn/go-sqlite3"
 )
 
-type Client struct {
-    conn *rpc.Client
+/* Go object representing a Bayou Client */
+type BayouClient struct {
+	id	   int
+    server *rpc.Client
 }
 
-func startBayouClient(port int) *rpc.Client {
-    client, err := rpc.DialHTTP("tcp", "localhost:"+strconv.Itoa(port))
+func NewBayouClient(id int, port int) *BayouClient {
+	// Connect to the server
+    rpcClient, err := rpc.DialHTTP("tcp", "localhost:"+strconv.Itoa(port))
     if err != nil {
         Log.Fatal("Failed to connect to server: ", err)
     }
-    return client
+
+	client := &BayouClient{}
+	client.id = id
+	client.server = rpcClient
+	return client
 }
 
-func checkRoom(name string, day int, hour int) []Room {
+func (client *BayouClient) checkRoom(name string, day int, hour int) []Room {
     startDate := createDate(day, hour)
     endDate := createDate(day, hour + 1)
-    var roomData []Data
+    var roomData []Room
 
     updateFun := func(db *sql.DB) {
-//        return checkRoom_helper(db, name, day, hour)
-        return ReadItemInDateRange(db, name, startDate, endDate)
+        ReadItemInDateRange(db, name, startDate, endDate)
     }
 
-    err := client.Call("BayouServer.Read", &updateFun, &roomData)
+    err := client.server.Call("BayouServer.Read", &updateFun, &roomData)
     if err != nil {
         Log.Fatal("Bayou Read RPC Failed: ", err)
     }
     return roomData
 }
 
-func claimRoom(name string, day int, hour int) []Room {
-    startDate := createDate(day, hour)
-    endDate := createDate(day, hour + 1)
+func (client *BayouClient) claimRoom(name string, day int, hour int) []Room {
+	var roomData []Room
 
     updateFun := func(db *sql.DB) {
-//        return checkRoom_helper(db, name, day, hour)
-        return claimRoom(db, name, day, hour)
+        claimRoom(db, name, day, hour)
     }
 
-    err := client.Call("BayouServer.Read", &updateFun, &retData)
+    err := client.server.Call("BayouServer.Read", &updateFun, &roomData)
     if err != nil {
         Log.Fatal("Bayou Read RPC Failed: ", err)
     }
-    return retData
+    return roomData
 }

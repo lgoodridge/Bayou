@@ -98,8 +98,8 @@ func ReadAllItems(db *sql.DB) []Room {
  * Returns only the database items between the start and the
  * end times provided
  */
-func ReadItemInDateRange(db *sql.DB, name string, start, end time.Time) []Room {
-    fmt.Println("TODO lol: " + name)
+func ReadItemInDateRange(db *sql.DB, name string,
+		start time.Time, end time.Time) []Room {
     // get the dates into the correct format
     startTxt := start.Format("2006-01-02 03:04")
     endTxt   := end.Format("2006-01-02 03:04")
@@ -166,7 +166,7 @@ func claimRoom(db *sql.DB, name string, day, hour int) string {
 
     // TODO: we need to check that conflict with the
     // actual room name
-    events := ReadItemInDateRange(db, startDate, endDate)
+	events := ReadItemInDateRange(db, name, startDate, endDate)
 
     // If event exists then we have a conflict
     if events != nil {
