@@ -7,6 +7,12 @@ import (
     _ "github.com/mattn/go-sqlite3"
 )
 
+/* Database used by Bayou server *
+ * Extends sqlite3 database type */
+type BayouDB struct {
+    *sql.DB
+} 
+
 type Room struct {
     Id          string
     Name        string
@@ -17,18 +23,18 @@ type Room struct {
 /*
  * Opens the Database file
  */
-func InitDB(filepath string) *sql.DB {
-    db, err := sql.Open("sqlite3", filepath)
+func InitDB(filepath string) *BayouDB {
+    sqlDB, err := sql.Open("sqlite3", filepath)
     if err != nil { Log.Fatal(err) }
-    if db == nil { Log.Fatal("db nil") }
-    return db
+    if sqlDB == nil { Log.Fatal("db nil") }
+    return &BayouDB{sqlDB}
 }
 
 /*
  * Creates a Database table if one
  * does not exist already
  */
-func CreateTable(db *sql.DB) {
+func (db *BayouDB) CreateTable() {
     // create table if not exists
     sql_table := `
     CREATE TABLE IF NOT EXISTS rooms(
@@ -49,7 +55,7 @@ func CreateTable(db *sql.DB) {
  * If the item exists already it will be
  * overwritten
 */
-func StoreItem(db *sql.DB, items []Room) {
+func (db *BayouDB) StoreItem(items []Room) {
     sql_additem := `
     INSERT OR REPLACE INTO rooms(
         Id,
@@ -73,7 +79,7 @@ func StoreItem(db *sql.DB, items []Room) {
 /*
  * Returns every item in the database
  */
-func ReadAllItems(db *sql.DB) []Room {
+func (db *BayouDB) ReadAllItems() []Room {
     sql_readall := `
     SELECT Id, Name, StartTime, EndTime FROM rooms
     ORDER BY datetime(StartTime) DESC
@@ -98,8 +104,8 @@ func ReadAllItems(db *sql.DB) []Room {
  * Returns only the database items between the start and the
  * end times provided
  */
-func ReadItemInDateRange(db *sql.DB, name string,
-		start time.Time, end time.Time) []Room {
+func (db *BayouDB) ReadItemInDateRange(name string,
+        start time.Time, end time.Time) []Room {
     // get the dates into the correct format
     startTxt := start.Format("2006-01-02 03:04")
     endTxt   := end.Format("2006-01-02 03:04")
@@ -160,13 +166,13 @@ var nextID int
  * day, and hour.
  * Returns a "" if successful, and an error string otherwise
  */
-func claimRoom(db *sql.DB, name string, day, hour int) string {
+func (db *BayouDB) ClaimRoom(name string, day, hour int) string {
     startDate := createDate(day, hour)
     endDate := createDate(day, hour + 1)
 
     // TODO: we need to check that conflict with the
     // actual room name
-	events := ReadItemInDateRange(db, name, startDate, endDate)
+    events := db.ReadItemInDateRange(name, startDate, endDate)
 
     // If event exists then we have a conflict
     if events != nil {
@@ -175,7 +181,7 @@ func claimRoom(db *sql.DB, name string, day, hour int) string {
     } else {
         var r []Room
         r = append(r, Room{string(nextID), name, startDate, endDate})
-        StoreItem(db, r)
+        db.StoreItem(r)
         nextID += 1
         return ""
     }

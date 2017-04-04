@@ -45,19 +45,19 @@ func TestDBBasic(t *testing.T) {
     defer db.Close()
 
     // Create the DB table
-    CreateTable(db)
+    db.CreateTable()
 
-    err := claimRoom(db, "Frist", 1, 1)
+    err := db.ClaimRoom("Frist", 1, 1)
     if err != "" {
         Log.Println(err)
     }
-    err = claimRoom(db, "Friend", 4, 2)
+    err = db.ClaimRoom("Friend", 4, 2)
     if err != "" {
         Log.Println(err)
     }
 
     // Read all items
-    readItems2 := ReadAllItems(db)
+    readItems2 := db.ReadAllItems()
     for _, item := range(readItems2) {
         Log.Println(item.Name)
         Log.Println(item.StartTime)

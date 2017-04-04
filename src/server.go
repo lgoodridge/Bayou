@@ -6,8 +6,6 @@ import (
     "net/http"
     "net/rpc"
     "sync"
-    "database/sql"
-    _ "github.com/mattn/go-sqlite3"
 )
 
 /*****************
@@ -36,9 +34,9 @@ type BayouServer struct {
     isActive bool
 
     // Holds the server's stable state
-    commitDB *sql.DB
+    commitDB *BayouDB
     // Holds all (committed and tentative) server state
-    fullDB   *sql.DB
+    fullDB   *BayouDB
 
     // Listener for shutting down the RPC server
     rpcListener net.Listener
@@ -113,23 +111,23 @@ type WriteReply struct {
  * Contains a function operating on the        *
  * database and a description of that function */ 
 type Operation struct {
-    Query func(*sql.DB)
+    Query func(*BayouDB)
     Desc  string
 }
 
 /* Dependency check function type:   *
  * Takes a database, and returns     *
  * whether the dependencies are held */
-type DepCheck func(*sql.DB) bool
+type DepCheck func(*BayouDB) bool
 
 /* Merge process function type:      *
  * Takes a database, and returns     *
  * whether the conflict was resolved */
-type MergeProc func(*sql.DB) bool
+type MergeProc func(*BayouDB) bool
 
 /* Read function type:                       *
  * Takes a database, and returns some result */
-type ReadFunc func(*sql.DB) interface{}
+type ReadFunc func(*BayouDB) interface{}
 
 /****************************
  *   BAYOU SERVER METHODS   *
@@ -137,8 +135,8 @@ type ReadFunc func(*sql.DB) interface{}
 
 /* Returns a new Bayou Server                *
  * Loads initial data and starts RPC handler */
-func NewBayouServer(id int, peers []*rpc.Client, commitDB *sql.DB,
-        fullDB *sql.DB, port int) *BayouServer {
+func NewBayouServer(id int, peers []*rpc.Client, commitDB *BayouDB,
+        fullDB *BayouDB, port int) *BayouServer {
     server := &BayouServer{}
     server.id = id
     server.peers = peers
