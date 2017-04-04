@@ -98,7 +98,7 @@ type ReadReply struct {
 type WriteArgs struct {
     WriteID int
     Op      Operation
-	Undo    Operation
+    Undo    Operation
     Check   DepCheck
     Merge   MergeProc
 }
@@ -155,7 +155,8 @@ func NewBayouServer(id int, peers []*rpc.Client, commitDB *sql.DB,
     server.CommitIndex = 0
     server.Omitted = NewVectorClock(len(peers))
 
-    // TODO: Load persistent data
+    // Load persistent data (if there is any)
+    server.loadPersist()
 
     // Start RPC server
     server.startRPCServer(port)
@@ -179,12 +180,15 @@ func (server *BayouServer) Kill() {
     server.rpcListener.Close()
 }
 
+// TODO
 /* Anti-Entropy RPC Handler */
 func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
         reply *AntiEntropyArgs) {
 }
 
-/* Bayou Read RPC Handler */
+/* Bayou Read RPC Handler                        *
+ * Returns result of the user-defined read query *
+ * on either the committed or full database      */
 func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) {
     var data interface{}
     if (args.ToCommit) {
@@ -195,6 +199,7 @@ func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) {
     reply.Data = data
 }
 
+// TODO (Lance)
 /* Bayou Write RPC Handler */
 func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) {
 }
@@ -256,9 +261,20 @@ func (server *BayouServer) applyToDB(toCommit bool, op Operation,
     return
 }
 
+// TODO (Lance)
 /* Rolls back the full view to just after    *
  * the log entry with the specified write ID */
 func (server *BayouServer) rollbackDB(rollbackPoint int) {
+}
+
+// TODO (David)
+/* Saves server data to stable storage */
+func (server *BayouServer) savePersist() {
+}
+
+// TODO (David)
+/* Loads server data from stable storage */
+func (server *BayouServer) loadPersist() {
 }
 
 /*******************
