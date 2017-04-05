@@ -105,7 +105,6 @@ type WriteArgs struct {
 
 /* Bayou Write RPC reply structure */
 type WriteReply struct {
-    Response    interface{}
     HasConflict bool
     WasResolved bool
 }
@@ -211,9 +210,47 @@ func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) {
     reply.Data = data
 }
 
-// TODO (Lance)
 /* Bayou Write RPC Handler */
 func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) {
+    // Increment vector clock
+    server.currentTime.Inc(server.id)
+
+    // Create entries for each of the logs
+    writeEntry := LogEntry{args.WriteID, server.currentTime, args.Op,
+            args.Check, args.Merge}
+    undoEntry := LogEntry{args.WriteID, server.currentTime, args.Op,
+            func(db *BayouDB)(bool){return true}, nil}
+
+    server.logLock.Lock()
+    defer server.logLock.Unlock()
+
+    // If this server is the primary, commit the write
+    // immediately, else add it as a tentative write and
+    // its undo operation to the undo log
+    if server.IsPrimary {
+        server.WriteLog = append(server.WriteLog, LogEntry{})
+        copy(server.WriteLog[server.CommitIndex+1:],
+                server.WriteLog[server.CommitIndex:])
+        server.WriteLog[server.CommitIndex] = writeEntry
+        server.CommitIndex++
+    } else {
+        server.WriteLog = append(server.WriteLog, writeEntry)
+        server.UndoLog = append(server.UndoLog, undoEntry)
+    }
+
+    // Apply write to database(s) and send unresolved conflicts to error log
+    hasConflict, resolved := server.applyToDB(false, args.Op,
+            args.Check, args.Merge)
+    if hasConflict && !resolved {
+        server.ErrorLog = append(server.ErrorLog, writeEntry)
+    }
+    if server.IsPrimary {
+        server.applyToDB(true, args.Op, args.Check, args.Merge)
+    }
+    server.savePersist()
+
+    reply.HasConflict = hasConflict
+    reply.WasResolved = resolved
 }
 
 /* Starts serving RPCs on the provided port */
@@ -258,7 +295,7 @@ func (server *BayouServer) applyToDB(toCommit bool, op Operation,
     server.dbLock.Lock()
     defer server.dbLock.Unlock()
 
-    // If there is no dependency conflicts, apply the operation to
+    // If there are no dependency conflicts, apply the operation to
     // the database. If there is, try to apply the merge function
     if (depcheck(db)) {
         op.Query(db)

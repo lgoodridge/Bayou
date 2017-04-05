@@ -68,19 +68,17 @@ func (client *BayouClient) sendReadRPC(readfunc ReadFunc,
  * whether the write had a conflict and whether it was   *
  * eventually resolved                                   */
 func (client *BayouClient) sendWriteRPC(op Operation, undo Operation,
-        check DepCheck, merge MergeProc) (err error, response interface{},
-        hasConflict bool, wasResolved bool) {
+        check DepCheck, merge MergeProc) (err error, hasConflict bool,
+        wasResolved bool) {
     writeArgs := &WriteArgs{randomInt(), op, undo, check, merge}
     var writeReply WriteReply
 
     // Send RPC and process the results
     err = client.server.Call("BayouServer.Write", writeArgs, &writeReply)
     if err != nil {
-        response = writeReply.Response
         hasConflict = writeReply.HasConflict
         wasResolved = writeReply.WasResolved
     } else {
-        response = nil
         hasConflict = false
         wasResolved = false
     }

@@ -18,7 +18,7 @@ Reimplementation of Bayou for COS 518 project.
 
 # Lance
 
-* Implement Server Write and Rollback
+* Unit test Bayou Server (all except anti-entropy)
 
 # Done
 
@@ -26,6 +26,7 @@ Reimplementation of Bayou for COS 518 project.
 * Get RPC working
 * Get Logical clock working
 * Write server Read RPC handler
+* Write server Write RPC handler
 * Write client update function
 * Write client resolve function
 * Framework for random update/resolves
