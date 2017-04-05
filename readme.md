@@ -6,6 +6,7 @@ Reimplementation of Bayou for COS 518 project.
 
 # David
 
+* Client CheckRoom and ClaimRoom methods
 * Get persistent storage working
     * https://blog.golang.org/gobs-of-data
     * Commit/Tenative log

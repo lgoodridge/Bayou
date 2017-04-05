@@ -1,18 +1,12 @@
 package bayou
 
 import (
-    "math/rand"
     "testing"
-    "time"
 )
 
 /*************************
  *    HELPER METHODS     *
  *************************/
-
-func init() {
-    rand.Seed(time.Now().Unix())
-}
 
 /* Fails provided test if condition is not true */
 func assert(t *testing.T, cond bool, message string) {

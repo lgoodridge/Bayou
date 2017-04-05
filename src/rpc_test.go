@@ -36,27 +36,27 @@ func (wc *WC) WordCount(args *WordCountArgs, reply *WordCountReply) error {
 /* Start serving WordCount RPCs on the provided port. *
  * Returns the listener for closing when finished.    */
 func startWCServer(port int) net.Listener {
-	rpcServer := rpc.NewServer()
-	wc := new(WC)
-	rpcServer.Register(wc)
+    rpcServer := rpc.NewServer()
+    wc := new(WC)
+    rpcServer.Register(wc)
 
-	// RPCs handlers are registered to the default server mux,
-	// so temporarily change it to allow multiple registrations
-	oldMux := http.DefaultServeMux
-	newMux := http.NewServeMux()
-	http.DefaultServeMux = newMux
+    // RPCs handlers are registered to the default server mux,
+    // so temporarily change it to allow multiple registrations
+    oldMux := http.DefaultServeMux
+    newMux := http.NewServeMux()
+    http.DefaultServeMux = newMux
 
-	// Register RPC handler, and restore default serve mux
-	rpcServer.HandleHTTP(rpc.DefaultRPCPath, rpc.DefaultDebugPath)
-	http.DefaultServeMux = oldMux
+    // Register RPC handler, and restore default serve mux
+    rpcServer.HandleHTTP(rpc.DefaultRPCPath, rpc.DefaultDebugPath)
+    http.DefaultServeMux = oldMux
 
-	// Listen and serve on the specified port
+    // Listen and serve on the specified port
     listener, err := net.Listen("tcp", ":"+strconv.Itoa(port))
     if err != nil {
         Log.Fatal("Listen Failed: ", err)
     }
     go http.Serve(listener, newMux)
-	return listener
+    return listener
 }
 
 /* Start up a client and connect to localhost *
@@ -105,14 +105,14 @@ func sendRPC(client *rpc.Client, message string, async bool) int {
 var serverStarted bool
 
 func init() {
-	Log.Println("Tests initialized.")
+    Log.Println("Tests initialized.")
 }
 
 /* Tests a single synchronous and asynchronous WordCount RPC */
 func TestRPCBasic(t *testing.T) {
-	port := 1234
-	closer := startWCServer(port)
-	defer closer.Close()
+    port := 1234
+    closer := startWCServer(port)
+    defer closer.Close()
 
     client := startWCClient(port)
     defer client.Close()
@@ -125,9 +125,9 @@ func TestRPCBasic(t *testing.T) {
 
 /* Tests concurrent WordCount RPCs */
 func TestRPCConcurrent(t *testing.T) {
-	port := 2345
-	closer := startWCServer(port)
-	defer closer.Close()
+    port := 2345
+    closer := startWCServer(port)
+    defer closer.Close()
 
     client1 := startWCClient(port)
     client2 := startWCClient(port)
@@ -167,26 +167,26 @@ func TestRPCConcurrent(t *testing.T) {
 
 /* Tests multiple servers listening on different ports */
 func TestRPCMultipleServers(t *testing.T) {
-	port1 := 3456
-	port2 := 4567
-	closer1 := startWCServer(port1)
-	closer2 := startWCServer(port2)
-	defer closer1.Close()
-	defer closer2.Close()
+    port1 := 3456
+    port2 := 4567
+    closer1 := startWCServer(port1)
+    closer2 := startWCServer(port2)
+    defer closer1.Close()
+    defer closer2.Close()
 
     client1a := startWCClient(port1)
     client1b := startWCClient(port1)
     client2a := startWCClient(port2)
-	client2b := startWCClient(port2)
+    client2b := startWCClient(port2)
     defer client1a.Close()
     defer client1b.Close()
     defer client2a.Close()
-	defer client2b.Close()
+    defer client2b.Close()
 
     var result1 int
     var result2 int
     var result3 int
-	var result4 int
+    var result4 int
 
     var wg sync.WaitGroup
     wg.Add(4)
@@ -204,8 +204,8 @@ func TestRPCMultipleServers(t *testing.T) {
         *result = sendRPC(client2a, "One pig left, he is not having fun", true)
         wg.Done()
     }(&result3)
-	go func(result *int) {
-		message := "So he got off, and then there were none."
+    go func(result *int) {
+        message := "So he got off, and then there were none."
         *result = sendRPC(client2b, message, true)
         wg.Done()
     }(&result4)

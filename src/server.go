@@ -83,8 +83,8 @@ type AntiEntropyReply struct {
 
 /* Bayou Read RPC arguments structure */
 type ReadArgs struct {
-    Read     ReadFunc
-    ToCommit bool
+    Read       ReadFunc
+    FromCommit bool
 }
 
 /* Bayou Read RPC arguments structure */
@@ -103,6 +103,7 @@ type WriteArgs struct {
 
 /* Bayou Write RPC reply structure */
 type WriteReply struct {
+	Response    interface{}
     HasConflict bool
     WasResolved bool
 }
@@ -189,7 +190,7 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
  * on either the committed or full database      */
 func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) {
     var data interface{}
-    if (args.ToCommit) {
+    if (args.FromCommit) {
         data = args.Read(server.commitDB)
     } else {
         data = args.Read(server.fullDB)

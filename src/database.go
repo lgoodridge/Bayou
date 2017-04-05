@@ -11,7 +11,7 @@ import (
  * Extends sqlite3 database type */
 type BayouDB struct {
     *sql.DB
-} 
+}
 
 type Room struct {
     Id          string

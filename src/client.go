@@ -1,55 +1,88 @@
 package bayou
 
 import (
-	"net/rpc"
-	"strconv"
+    "net/rpc"
+    "strconv"
 )
+
+/************************
+ *   TYPE DEFINITIONS   *
+ ************************/
 
 /* Go object representing a Bayou Client */
 type BayouClient struct {
-	id	   int
+    id     int
     server *rpc.Client
 }
 
+/****************************
+ *   BAYOU CLIENT METHODS   *
+ ****************************/
+
+/* Returns a new Bayou Client                  *
+ * Connects to its server on the provided port */
 func NewBayouClient(id int, port int) *BayouClient {
-	// Connect to the server
+    // Connect to the server
     rpcClient, err := rpc.DialHTTP("tcp", "localhost:"+strconv.Itoa(port))
     if err != nil {
         Log.Fatal("Failed to connect to server: ", err)
     }
 
-	client := &BayouClient{}
-	client.id = id
-	client.server = rpcClient
-	return client
+    client := &BayouClient{id, rpcClient}
+    return client
 }
 
-func (client *BayouClient) CheckRoom(name string, day int, hour int) []Room {
-    startDate := createDate(day, hour)
-    endDate := createDate(day, hour + 1)
-    var roomData []Room
-
-    updateFun := func(db *BayouDB) {
-		db.ReadItemInDateRange(name, startDate, endDate)
-    }
-
-    err := client.server.Call("BayouServer.Read", &updateFun, &roomData)
-    if err != nil {
-        Log.Fatal("Bayou Read RPC Failed: ", err)
-    }
-    return roomData
+// TODO (David)
+/* Returns the status of the room with provided name at the provided time *
+ * If onlyStable is true, tentative claims are not considered             */
+func (client *BayouClient) CheckRoom(name string, day int, hour int,
+        onlyStable bool) Room {
+    return Room{}
 }
 
-func (client *BayouClient) ClaimRoom(name string, day int, hour int) []Room {
-	var roomData []Room
+// TODO (David)
+/* Claims a room at the provided date and time */
+func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
+}
 
-    updateFun := func(db *BayouDB) {
-        db.ClaimRoom(name, day, hour)
-    }
+/* Sends a Read RPC to the client's server    *
+ * Returns an error if the RPC fails, and     *
+ * the result of the read query if successful */
+func (client *BayouClient) sendReadRPC(readfunc ReadFunc,
+        fromCommit bool) (err error, data interface{}) {
+    readArgs := &ReadArgs{readfunc, fromCommit}
+    var readReply ReadReply
 
-    err := client.server.Call("BayouServer.Read", &updateFun, &roomData)
+    // Send RPC and process the results
+    err = client.server.Call("BayouServer.Read", readArgs, &readReply)
     if err != nil {
-        Log.Fatal("Bayou Read RPC Failed: ", err)
+        data = readReply.Data
+    } else {
+        data = nil
     }
-    return roomData
+    return
+}
+
+/* Sends a Write RPC to the client's server              *
+ * Returns an error if the RPC fails, and if successful, *
+ * whether the write had a conflict and whether it was   *
+ * eventually resolved                                   */
+func (client *BayouClient) sendWriteRPC(op Operation, undo Operation,
+        check DepCheck, merge MergeProc) (err error, response interface{},
+        hasConflict bool, wasResolved bool) {
+    writeArgs := &WriteArgs{randomInt(), op, undo, check, merge}
+    var writeReply WriteReply
+
+    // Send RPC and process the results
+    err = client.server.Call("BayouServer.Write", writeArgs, &writeReply)
+    if err != nil {
+        response = writeReply.Response
+        hasConflict = writeReply.HasConflict
+        wasResolved = writeReply.WasResolved
+    } else {
+        response = nil
+        hasConflict = false
+        wasResolved = false
+    }
+    return
 }
