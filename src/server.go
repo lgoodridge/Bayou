@@ -41,8 +41,10 @@ type BayouServer struct {
     // Listener for shutting down the RPC server
     rpcListener net.Listener
 
-    // Current logical time
-    currentTime VectorClock
+    // Timestamp of last committed write
+    commitClock    VectorClock
+    // Timestamp of last tentative write
+    tentativeClock VectorClock
 
     // Various locks
     dbLock      *sync.Mutex
@@ -52,18 +54,17 @@ type BayouServer struct {
     // Whether this server is the primary
     IsPrimary bool
 
-    // Index of next committed log entry
-    CommitIndex int
-
-    // Stores ops: committed, lower timestamp entries are at the head
-    WriteLog []LogEntry
+    // Stores committed ops: lower timestamps closer to head
+    CommitLog    []LogEntry
+    // Stores uncommitted operations
+    TentativeLog []LogEntry
     // Stores undo operations for all tentative ops
-    UndoLog  []LogEntry
+    UndoLog      []LogEntry
     // Operations that conflict and fail to merge are stored here
-    ErrorLog []LogEntry
+    ErrorLog     []LogEntry
 
     // Maintains timestamp of latest write discarded from each server
-    Omitted VectorClock
+    Omitted []VectorClock
 }
 
 /* Represents an entry in a Bayou server log */
@@ -147,26 +148,41 @@ func NewBayouServer(id int, peers []*rpc.Client, commitDB *BayouDB,
 
     // Set Initial State
     server.isActive = true
-    server.currentTime = NewVectorClock(len(peers))
+    server.commitClock = NewVectorClock(len(peers))
+    server.tentativeClock = NewVectorClock(len(peers))
     server.dbLock = &sync.Mutex{}
     server.logLock = &sync.Mutex{}
     server.persistLock = &sync.Mutex{}
     server.IsPrimary = false
-    server.CommitIndex = 0
-    server.WriteLog = make([]LogEntry, 0)
+    server.CommitLog = make([]LogEntry, 0)
+    server.TentativeLog = make([]LogEntry, 0)
     server.UndoLog = make([]LogEntry, 0)
     server.ErrorLog = make([]LogEntry, 0)
-    server.Omitted = NewVectorClock(len(peers))
+    server.Omitted = make([]VectorClock, len(peers))
+    for i, _ := range server.Omitted {
+        server.Omitted[i] = NewVectorClock(len(peers))
+    }
 
     // Load persistent data (if there is any)
     server.loadPersist()
 
     // Replay all writes to their respective database
-    for idx, entry := range server.WriteLog {
-        if idx < server.CommitIndex {
-            server.applyToDB(true, entry.Op, entry.Check, entry.Merge)
-        }
+    for _, entry := range server.CommitLog {
+        server.applyToDB(true, entry.Op, entry.Check, entry.Merge)
         server.applyToDB(false, entry.Op, entry.Check, entry.Merge)
+    }
+    for _, entry := range server.TentativeLog {
+        server.applyToDB(false, entry.Op, entry.Check, entry.Merge)
+    }
+
+    // Update timestamps to the appropiate values
+    lastCommitIdx := len(server.CommitLog) - 1
+    lastTentativeIdx := len(server.TentativeLog) - 1
+    if lastCommitIdx >= 0 {
+        server.commitClock = server.CommitLog[lastCommitIdx].Timestamp
+    }
+    if lastTentativeIdx >= 0 {
+        server.tentativeClock = server.TentativeLog[lastTentativeIdx].Timestamp
     }
 
     // Start RPC server
@@ -212,29 +228,29 @@ func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) {
 
 /* Bayou Write RPC Handler */
 func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) {
-    // Increment vector clock
-    server.currentTime.Inc(server.id)
+    // Update appropiate vector clock(s)
+    server.tentativeClock.Inc(server.id)
+    writeClock := server.tentativeClock
+    if server.IsPrimary {
+        server.commitClock.Inc(server.id)
+        writeClock = server.commitClock
+    }
 
     // Create entries for each of the logs
-    writeEntry := LogEntry{args.WriteID, server.currentTime, args.Op,
+    writeEntry := LogEntry{args.WriteID, writeClock, args.Op,
             args.Check, args.Merge}
-    undoEntry := LogEntry{args.WriteID, server.currentTime, args.Op,
+    undoEntry := LogEntry{args.WriteID, writeClock, args.Op,
             func(db *BayouDB)(bool){return true}, nil}
 
     server.logLock.Lock()
     defer server.logLock.Unlock()
 
-    // If this server is the primary, commit the write
-    // immediately, else add it as a tentative write and
-    // its undo operation to the undo log
+    // If this server is the primary, commit the write immediately,
+    // else add it as a tentative write and its undo operation to the undo log
     if server.IsPrimary {
-        server.WriteLog = append(server.WriteLog, LogEntry{})
-        copy(server.WriteLog[server.CommitIndex+1:],
-                server.WriteLog[server.CommitIndex:])
-        server.WriteLog[server.CommitIndex] = writeEntry
-        server.CommitIndex++
+        server.CommitLog = append(server.CommitLog, writeEntry)
     } else {
-        server.WriteLog = append(server.WriteLog, writeEntry)
+        server.TentativeLog = append(server.TentativeLog, writeEntry)
         server.UndoLog = append(server.UndoLog, undoEntry)
     }
 
@@ -323,27 +339,29 @@ func (server *BayouServer) rollbackDB(rollbackID int) {
 
     // Apply undo operations until we find the target
     targetIndex := -1
-    for i := len(server.WriteLog) - 1; i >= server.CommitIndex; i-- {
-        if server.WriteLog[i].WriteID == rollbackID {
+    for i := len(server.TentativeLog) - 1; i >= 0; i-- {
+        if server.TentativeLog[i].WriteID == rollbackID {
             targetIndex = i
             break
         }
-        undoIdx := i - server.CommitIndex
-        server.applyToDB(false, server.UndoLog[undoIdx].Op,
-                server.UndoLog[undoIdx].Check, server.UndoLog[undoIdx].Merge)
+        server.applyToDB(false, server.UndoLog[targetIndex].Op,
+            server.UndoLog[targetIndex].Check,
+            server.UndoLog[targetIndex].Merge)
     }
 
-    // If the target entry was never found, and its not the
-    // entry immediately preceeding the commit index, we are
-    // trying to rollback committed entries, which is not allowed
-    if targetIndex == -1 && server.CommitIndex > 0 &&
-            server.WriteLog[server.CommitIndex-1].WriteID != rollbackID {
-        Log.Fatal("Programmer Error: Attempted to rollback committed entries")
+    // If the target entry was never found in the tentative log,
+    // and its not the latest commit entry, we are trying to
+    // rollback committed entries, which is not allowed
+    if targetIndex == -1 && len(server.CommitLog) > 0 &&
+            server.CommitLog[len(server.CommitLog) - 1].WriteID != rollbackID {
+        errMsg := fmt.Sprintf("Programmer Error: Attempted to rollback " +
+                "committed entries (Rollback ID: %d)", rollbackID)
+        Log.Fatal(errMsg)
     }
 
     // Truncate the write and undo logs, then save to stable storage
-    server.WriteLog = server.WriteLog[:targetIndex+1]
-    server.UndoLog = server.WriteLog[:targetIndex-server.CommitIndex+1]
+    server.TentativeLog = server.TentativeLog[:targetIndex+1]
+    server.UndoLog = server.UndoLog[:targetIndex+1]
     server.savePersist()
 }
 
