@@ -2,9 +2,9 @@ package bayou
 
 import (
     "log"
-	"math/rand"
+    "math/rand"
     "os"
-	"time"
+    "time"
 )
 
 /********************
@@ -40,10 +40,10 @@ func debugf(format string, a ...interface{}) {
 var random *rand.Rand
 
 func init() {
-	random = rand.New(rand.NewSource(time.Now().Unix()))
+    random = rand.New(rand.NewSource(time.Now().Unix()))
 }
 
 /* Returns a random integer */
 func randomInt() int {
-	return random.Int()
+    return random.Int()
 }

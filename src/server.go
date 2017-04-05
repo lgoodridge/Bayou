@@ -52,7 +52,7 @@ type BayouServer struct {
     // Whether this server is the primary
     IsPrimary bool
 
-    // Index of latest committed log entry
+    // Index of next committed log entry
     CommitIndex int
 
     // Stores ops: committed, lower timestamp entries are at the head
@@ -71,6 +71,8 @@ type LogEntry struct {
     WriteID   int
     Timestamp VectorClock
     Op        Operation
+    Check     DepCheck
+    Merge     MergeProc
 }
 
 /* AntiEntropy RPC arguments structure */
@@ -103,14 +105,14 @@ type WriteArgs struct {
 
 /* Bayou Write RPC reply structure */
 type WriteReply struct {
-	Response    interface{}
+    Response    interface{}
     HasConflict bool
     WasResolved bool
 }
 
 /* Update or Undo operation type               *
  * Contains a function operating on the        *
- * database and a description of that function */ 
+ * database and a description of that function */
 type Operation struct {
     Query func(*BayouDB)
     Desc  string
@@ -152,10 +154,21 @@ func NewBayouServer(id int, peers []*rpc.Client, commitDB *BayouDB,
     server.persistLock = &sync.Mutex{}
     server.IsPrimary = false
     server.CommitIndex = 0
+    server.WriteLog = make([]LogEntry, 0)
+    server.UndoLog = make([]LogEntry, 0)
+    server.ErrorLog = make([]LogEntry, 0)
     server.Omitted = NewVectorClock(len(peers))
 
     // Load persistent data (if there is any)
     server.loadPersist()
+
+    // Replay all writes to their respective database
+    for idx, entry := range server.WriteLog {
+        if idx < server.CommitIndex {
+            server.applyToDB(true, entry.Op, entry.Check, entry.Merge)
+        }
+        server.applyToDB(false, entry.Op, entry.Check, entry.Merge)
+    }
 
     // Start RPC server
     server.startRPCServer(port)
@@ -225,7 +238,7 @@ func (server *BayouServer) startRPCServer(port int) {
         Log.Fatal("Listen Failed: ", err)
     }
     go http.Serve(server.rpcListener, newMux)
-    
+
     debugf("Server #%d listening on port %d", server.id, port)
 }
 
@@ -234,13 +247,16 @@ func (server *BayouServer) startRPCServer(port int) {
  * commit view, else it is applied to the full view   *
  * Returns whether there was a conflict, and if so,   *
  * whether it was resolved                            */
-func (server *BayouServer) applyToDB(toCommit bool, op Operation, 
+func (server *BayouServer) applyToDB(toCommit bool, op Operation,
         depcheck DepCheck, merge MergeProc) (hasConflict bool, resolved bool) {
     // Get the server to apply the operation on
     db := server.fullDB
     if toCommit {
         db = server.commitDB
     }
+
+    server.dbLock.Lock()
+    defer server.dbLock.Unlock()
 
     // If there is no dependency conflicts, apply the operation to
     // the database. If there is, try to apply the merge function
@@ -260,10 +276,38 @@ func (server *BayouServer) applyToDB(toCommit bool, op Operation,
     return
 }
 
-// TODO (Lance)
 /* Rolls back the full view to just after    *
  * the log entry with the specified write ID */
-func (server *BayouServer) rollbackDB(rollbackPoint int) {
+func (server *BayouServer) rollbackDB(rollbackID int) {
+    server.logLock.Lock()
+    server.dbLock.Lock()
+    defer server.logLock.Unlock()
+    defer server.dbLock.Unlock()
+
+    // Apply undo operations until we find the target
+    targetIndex := -1
+    for i := len(server.WriteLog) - 1; i >= server.CommitIndex; i-- {
+        if server.WriteLog[i].WriteID == rollbackID {
+            targetIndex = i
+            break
+        }
+        undoIdx := i - server.CommitIndex
+        server.applyToDB(false, server.UndoLog[undoIdx].Op,
+                server.UndoLog[undoIdx].Check, server.UndoLog[undoIdx].Merge)
+    }
+
+    // If the target entry was never found, and its not the
+    // entry immediately preceeding the commit index, we are
+    // trying to rollback committed entries, which is not allowed
+    if targetIndex == -1 && server.CommitIndex > 0 &&
+            server.WriteLog[server.CommitIndex-1].WriteID != rollbackID {
+        Log.Fatal("Programmer Error: Attempted to rollback committed entries")
+    }
+
+    // Truncate the write and undo logs, then save to stable storage
+    server.WriteLog = server.WriteLog[:targetIndex+1]
+    server.UndoLog = server.WriteLog[:targetIndex-server.CommitIndex+1]
+    server.savePersist()
 }
 
 // TODO (David)
