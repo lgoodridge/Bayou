@@ -1,6 +1,11 @@
 package bayou
 
 import (
+    "net"
+    "net/rpc"
+    "os"
+    "path/filepath"
+    "sync"
     "testing"
 )
 
@@ -31,11 +36,24 @@ func ensureNoError(t *testing.T, err error, prefix string) {
  *    DATABASE TESTS     *
  *************************/
 
+/* Returns the Bayou database with the provided filename *
+ * Clears the database before returning if reset is true *
+ * All test databases are stored in the "db" directory   */
+func getDB(filename string, reset bool) *BayouDB {
+    dirname := "db"
+    os.MkdirAll(dirname, os.ModePerm)
+    dbFilepath := filepath.Join(dirname, filename)
+    if reset {
+        os.RemoveAll(dbFilepath)
+    }
+    return InitDB(dbFilepath)
+}
+
 /* Tests basic database functionality */
 func TestDBBasic(t *testing.T) {
     // Open the Datapath
     const dbpath = "foo.db"
-    db := InitDB(dbpath)
+    db := getDB(dbpath, false)
     defer db.Close()
 
     // Create the DB table
@@ -122,3 +140,123 @@ func TestVectorClock(t *testing.T) {
     // Ensure other wasn't affected
     assertVCEqual(t, other, VectorClock{5, 5, 2, 2})
 }
+
+/*****************************
+ *    BAYOU SERVER TESTS     *
+ *****************************/
+
+/* Sets up an array of RPC clients, each listening *
+ * to one of the ports in the provided ports array */
+func setupClients(clients []*rpc.Client, ports []int) {
+    if len(clients) != len(ports) {
+        Log.Fatal("Test Error: Length of client and port arrays do not match.")
+    }
+    for idx, port := range ports {
+        clients[idx] = startWCClient(port)
+    }
+}
+
+/* Sets up an array of Dummy WC RPC servers, each    *
+ * serving on one of the ports in the provided array *
+ * Returns an array of listeners for clean up        */
+func setupDummyServers(ports []int) []net.Listener {
+    listeners := make([]net.Listener, len(ports))
+    for idx, port := range ports {
+        listeners[idx] = startWCServer(port)
+    }
+    return listeners
+}
+
+/* Closes each of the provided RPC clients */
+func cleanupClients(clients []*rpc.Client) {
+    for _, client := range clients {
+        client.Close()
+    }
+}
+
+/* Closes each of the provided dummy servers */
+func cleanupDummyServers(listeners []net.Listener) {
+    for _, listener := range listeners {
+        listener.Close()
+    }
+}
+
+/* Tests server RPC functionality */
+func TestServerRPC(t *testing.T) {
+    numClients := 10
+    port := 1111
+
+    ports := make([]int, numClients)
+    for i := 0; i < numClients; i++ {
+        ports[i] = port
+    }
+    clients := make([]*rpc.Client, len(ports))
+
+    commitDB := getDB("test_commit.db", true)
+    fullDB := getDB("test_full.db", true)
+    defer commitDB.Close()
+    defer fullDB.Close()
+
+    // Start up Bayou server and RPC clients
+    serverID := 0
+    server := NewBayouServer(serverID, clients, commitDB,
+            fullDB, ports[serverID])
+    setupClients(clients, ports)
+    defer server.Kill()
+    defer cleanupClients(clients)
+
+    // Test a single RPC
+    pingArgs := &PingArgs{2}
+    var pingReply PingReply
+    err := clients[serverID].Call("BayouServer.Ping", pingArgs, &pingReply)
+    ensureNoError(t, err, "Single Ping RPC failed: ")
+    assert(t, pingReply.Alive, "Single Ping RPC failed.")
+
+    var wg sync.WaitGroup
+    wg.Add(numClients)
+
+    argArr := make([]PingArgs, numClients)
+    replyArr := make([]PingReply, numClients)
+
+    // Test several RPC calls at once
+    for i := 0; i < numClients; i++ {
+        go func(id int) {
+            debugf("Client #%d sending ping!", id)
+            argArr[id].SenderID = id
+            newErr := clients[id].Call("BayouServer.Ping",
+                    &argArr[id], &replyArr[id])
+            ensureNoError(t, newErr, "Concurrent Ping RPC Failed: ")
+            assert(t, replyArr[id].Alive, "Concurrent Ping RPC failed.")
+            wg.Done()
+        } (i)
+    }
+    wg.Wait()
+}
+
+/* Tests server Read and Write functions */
+func TestServerReadWrite(t *testing.T) {
+    Log.Println("Test not implemented.")
+}
+
+/* Tests server Anti-Entropy communication */
+func TestServerAntiEntropy(t *testing.T) {
+    Log.Println("Test not implemented.")
+}
+
+/* Tests server persistence and recovery */
+func TestServerPersist(t *testing.T) {
+    Log.Println("Test not implemented.")
+}
+
+/* Tests that a cluster of servers *
+ * eventually reach consistency    */
+func TestClusterBasic(t *testing.T) {
+    Log.Println("Test not implemented.")
+}
+
+/* Tests that a cluster of servers eventually reach *
+ * consistency in the face of network partitions    */
+func TestClusterPartition(t *testing.T) {
+    Log.Println("Test not implemented.")
+}
+

@@ -33,11 +33,8 @@ Reimplementation of Bayou for COS 518 project.
 
 # TODO
 
-* Write Function
-    * Updating vector clocks
-    * Updating logs
-    * Applying to dataase
-* Checkpointing
 * Anti-Entropy
-    * Log Rollbacking
+* Investigate custom Test RPC class
+* Set up testing infrastructure
+* Perform tests
 

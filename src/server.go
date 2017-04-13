@@ -84,13 +84,23 @@ type AntiEntropyArgs struct {
 type AntiEntropyReply struct {
 }
 
+/* Ping RPC arguments structure */
+type PingArgs struct {
+    SenderID int
+}
+
+/* Ping RPC reply structure */
+type PingReply struct {
+    Alive bool
+}
+
 /* Bayou Read RPC arguments structure */
 type ReadArgs struct {
     Read       ReadFunc
     FromCommit bool
 }
 
-/* Bayou Read RPC arguments structure */
+/* Bayou Read RPC reply structure */
 type ReadReply struct {
     Data interface{}
 }
@@ -210,13 +220,23 @@ func (server *BayouServer) Kill() {
 // TODO
 /* Anti-Entropy RPC Handler */
 func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
-        reply *AntiEntropyArgs) {
+        reply *AntiEntropyArgs) error {
+    return nil
+}
+
+/* Ping RPC Handler                             *
+ * Test RPC for determining server connectivity *
+ * Sets Alive to yes is RPC was received        */
+func (server *BayouServer) Ping(args *PingArgs, reply *PingReply) error {
+    debugf("Server #%d received ping from %d", server.id, args.SenderID)
+    reply.Alive = true
+    return nil
 }
 
 /* Bayou Read RPC Handler                        *
  * Returns result of the user-defined read query *
  * on either the committed or full database      */
-func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) {
+func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) error {
     var data interface{}
     if (args.FromCommit) {
         data = args.Read(server.commitDB)
@@ -224,10 +244,11 @@ func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) {
         data = args.Read(server.fullDB)
     }
     reply.Data = data
+    return nil
 }
 
 /* Bayou Write RPC Handler */
-func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) {
+func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) error {
     // Update appropiate vector clock(s)
     server.tentativeClock.Inc(server.id)
     writeClock := server.tentativeClock
@@ -267,12 +288,18 @@ func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) {
 
     reply.HasConflict = hasConflict
     reply.WasResolved = resolved
+    return nil
 }
 
 /* Starts serving RPCs on the provided port */
 func (server *BayouServer) startRPCServer(port int) {
     rpcServer := rpc.NewServer()
+
+    // Register the server RPCs, temporarily disabling the standard log
+    // to ignore the "wrong number of ins" warning from non-RPC methods
+    disableStdLog()
     rpcServer.Register(server)
+    restoreStdLog()
 
     // RPCs handlers are registered to the default server mux,
     // so temporarily change it to allow multiple registrations

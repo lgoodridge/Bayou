@@ -1,6 +1,7 @@
 package bayou
 
 import (
+    "io/ioutil"
     "log"
     "math/rand"
     "os"
@@ -30,6 +31,16 @@ func debugf(format string, a ...interface{}) {
     if DEBUG_MODE {
         Log.Printf(format, a...)
     }
+}
+
+/* Disables the standard log */
+func disableStdLog() {
+    log.SetOutput(ioutil.Discard)
+}
+
+/* Restore standard log */
+func restoreStdLog() {
+    log.SetOutput(os.Stderr)
 }
 
 /*******************************
