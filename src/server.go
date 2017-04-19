@@ -63,7 +63,7 @@ type BayouServer struct {
     // Operations that conflict and fail to merge are stored here
     ErrorLog     []LogEntry
 
-    // Maintains timestamp of latest write discarded from each server
+    // Maintains timestamp of latest commit agreed upon by each server
     Omitted []VectorClock
 }
 
@@ -78,10 +78,16 @@ type LogEntry struct {
 
 /* AntiEntropy RPC arguments structure */
 type AntiEntropyArgs struct {
+    CommitSet     []LogEntry
+    TentativeSet  []LogEntry
+    OmitTimestamp VectorClock
 }
 
 /* AntiEntropy RPC reply structure */
 type AntiEntropyReply struct {
+    CommitSet     []LogEntry
+    TentativeSet  []LogEntry
+    MustUpdateLog bool
 }
 
 /* Ping RPC arguments structure */
@@ -184,16 +190,7 @@ func NewBayouServer(id int, peers []*rpc.Client, commitDB *BayouDB,
     for _, entry := range server.TentativeLog {
         server.applyToDB(false, entry.Op, entry.Check, entry.Merge)
     }
-
-    // Update timestamps to the appropiate values
-    lastCommitIdx := len(server.CommitLog) - 1
-    lastTentativeIdx := len(server.TentativeLog) - 1
-    if lastCommitIdx >= 0 {
-        server.commitClock = server.CommitLog[lastCommitIdx].Timestamp
-    }
-    if lastTentativeIdx >= 0 {
-        server.tentativeClock = server.TentativeLog[lastTentativeIdx].Timestamp
-    }
+    server.updateClocks()
 
     // Start RPC server
     server.startRPCServer(port)
@@ -217,10 +214,60 @@ func (server *BayouServer) Kill() {
     server.rpcListener.Close()
 }
 
-// TODO
-/* Anti-Entropy RPC Handler */
+/* Anti-Entropy RPC Handler                   *
+ * Resolve this server's log and the provided *
+ * log and return the agreed upon result log  */
 func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
-        reply *AntiEntropyArgs) error {
+        reply *AntiEntropyReply) error {
+    var useMyLog bool
+    var otherCommitClock VectorClock
+    var otherTentativeClock VectorClock
+
+    // Calculate the other server's commit and tentative clock
+    if len(args.CommitSet) == 0 {
+        otherCommitClock = args.OmitTimestamp
+    } else {
+        otherCommitClock = args.CommitSet[len(args.CommitSet) - 1].Timestamp
+    }
+    if len(args.TentativeSet) == 0 {
+        otherTentativeClock = otherCommitClock
+    } else {
+        otherTentativeClock =
+                args.TentativeSet[len(args.TentativeSet) - 1].Timestamp
+    }
+
+    server.logLock.Lock()
+    defer server.logLock.Unlock()
+
+    // Determine which server's log to follow:
+    // Use the log with the greater commit timestamp, or the
+    // log with the greater tentative timestamp as a tiebreaker
+    if otherCommitClock.LessThan(server.commitClock) {
+        useMyLog = true
+    } else if server.commitClock.LessThan(otherCommitClock) {
+        useMyLog = false
+    } else {
+        useMyLog = otherTentativeClock.LessThan(server.tentativeClock)
+    }
+
+    // Update server state if necessary
+    if !useMyLog {
+        server.matchLog(args.CommitSet, args.TentativeSet, args.OmitTimestamp)
+        server.updateClocks()
+    }
+
+    // Respond with the chosen results
+    if useMyLog {
+        targetIndex := getInsertIndex(server.CommitLog, args.OmitTimestamp)
+        reply.CommitSet = make([]LogEntry, len(server.CommitLog) - targetIndex)
+        copy(server.CommitLog[targetIndex:], reply.CommitSet)
+        reply.TentativeSet = make([]LogEntry, len(server.TentativeLog))
+        copy(server.TentativeLog, reply.TentativeSet)
+    } else {
+        reply.CommitSet = make([]LogEntry, 0)
+        reply.TentativeSet = make([]LogEntry, 0)
+    }
+    reply.MustUpdateLog = useMyLog
     return nil
 }
 
@@ -237,17 +284,23 @@ func (server *BayouServer) Ping(args *PingArgs, reply *PingReply) error {
  * Returns result of the user-defined read query *
  * on either the committed or full database      */
 func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) error {
+    server.dbLock.Lock()
+    defer server.dbLock.Unlock()
+
     var data interface{}
     if (args.FromCommit) {
         data = args.Read(server.commitDB)
     } else {
         data = args.Read(server.fullDB)
     }
+
     reply.Data = data
     return nil
 }
 
-/* Bayou Write RPC Handler */
+/* Bayou Write RPC Handler                       *
+ * Returns whether the write had a conflict, and *
+ * if so, whether it was successfully resolved   */
 func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) error {
     // Update appropiate vector clock(s)
     server.tentativeClock.Inc(server.id)
@@ -322,6 +375,13 @@ func (server *BayouServer) startRPCServer(port int) {
     debugf("Server #%d listening on port %d", server.id, port)
 }
 
+// TODO
+/* Rollsback the database, and applies log entries so that *
+ * this server's log matches the provided write sets       */
+func (server *BayouServer) matchLog(commitSet []LogEntry,
+        tentativeSet []LogEntry, omitTimestamp VectorClock) {
+}
+
 /* Applies an operation to the server's database      *
  * If toCommit is true, it is applied to the server's *
  * commit view, else it is applied to the full view   *
@@ -329,7 +389,7 @@ func (server *BayouServer) startRPCServer(port int) {
  * whether it was resolved                            */
 func (server *BayouServer) applyToDB(toCommit bool, op Operation,
         depcheck DepCheck, merge MergeProc) (hasConflict bool, resolved bool) {
-    // Get the server to apply the operation on
+    // Get the database to apply the operation on
     db := server.fullDB
     if toCommit {
         db = server.commitDB
@@ -361,8 +421,8 @@ func (server *BayouServer) applyToDB(toCommit bool, op Operation,
 func (server *BayouServer) rollbackDB(rollbackID int) {
     server.logLock.Lock()
     server.dbLock.Lock()
-    defer server.logLock.Unlock()
     defer server.dbLock.Unlock()
+    defer server.logLock.Unlock()
 
     // Apply undo operations until we find the target
     targetIndex := -1
@@ -392,6 +452,19 @@ func (server *BayouServer) rollbackDB(rollbackID int) {
     server.savePersist()
 }
 
+/* Updates commit and tentative clocks to the        *
+ * appropiate values, based on their respective logs */
+func (server *BayouServer) updateClocks() {
+    lastCommitIdx := len(server.CommitLog) - 1
+    lastTentativeIdx := len(server.TentativeLog) - 1
+    if lastCommitIdx >= 0 {
+        server.commitClock = server.CommitLog[lastCommitIdx].Timestamp
+    }
+    if lastTentativeIdx >= 0 {
+        server.tentativeClock = server.TentativeLog[lastTentativeIdx].Timestamp
+    }
+}
+
 // TODO (David)
 /* Saves server data to stable storage */
 func (server *BayouServer) savePersist() {
@@ -405,6 +478,18 @@ func (server *BayouServer) loadPersist() {
 /*******************
  *   LOG METHODS   *
  *******************/
+
+/* Returns index after the first entry in the log *
+ * with a timestamp less than the one provided    */
+func getInsertIndex(log []LogEntry, targetTimestamp VectorClock) int {
+    var searchIndex int
+    for searchIndex = len(log) - 1; searchIndex >= 0; searchIndex-- {
+        if targetTimestamp.LessThan(log[searchIndex].Timestamp) {
+            break
+        }
+    }
+    return searchIndex + 1
+}
 
 func logToString(log []LogEntry) string {
     logStr := ""
