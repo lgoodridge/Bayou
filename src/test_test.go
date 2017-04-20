@@ -1,6 +1,7 @@
 package bayou
 
 import (
+    "fmt"
     "net"
     "net/rpc"
     "os"
@@ -243,14 +244,15 @@ func TestServerAntiEntropy(t *testing.T) {
     Log.Println("Test not implemented.")
 }
 
-func createNetwork(testName string, numClusters int) []BayouServer, []*rpc.Client {
-    serverList := make([]BayouServer, numClusters)
+func createNetwork(testName string, numClusters int) ([]*BayouServer, []*rpc.Client) {
+    serverList := make([]*BayouServer, numClusters)
     clientList := make([]*rpc.Client, numClusters)
     port := 1111
     for i := 0; i < numClusters; i++ {
-        commitDB := getDB(testName + i + ".commit.db", true)
-        fullDB := getDB(testName + i + ".full.db", true)
-        sever := NewBayouServer(i, client, commitDB1, fullDB1, port + i)
+        id := fmt.Sprintf("%d", i)
+        commitDB := getDB(testName + id + ".commit.db", true)
+        fullDB := getDB(testName + id + ".full.db", true)
+        server := NewBayouServer(i, clientList, commitDB, fullDB, port + i)
         serverList[i] = server
         clientList[i] = startWCClient(port + i)
     }

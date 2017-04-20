@@ -2,6 +2,7 @@ package bayou
 
 import (
     "io/ioutil"
+    "fmt"
 )
 
 
@@ -12,11 +13,13 @@ func check(e error) {
 }
 
 func save(data []byte, id int) {
-     err := ioutil.WriteFile("/tmp/bayou-data." + id, data, 0644)
+     stringId := fmt.Sprintf("%d",id)
+     err := ioutil.WriteFile("/tmp/bayou-data." + stringId, data, 0644)
      check(err)
 }
 
 func load(id int) ([]byte, error) {
-    dat, err := ioutil.ReadFile("/tmp/bayou-data." + id)
-    return dat, err
+     stringId := fmt.Sprintf("%d",id)
+     dat, err := ioutil.ReadFile("/tmp/bayou-data." + stringId)
+     return dat, err
 }
