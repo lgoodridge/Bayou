@@ -502,7 +502,7 @@ func (server *BayouServer) loadPersist() {
 //    gob.register(VectorClock)
     b, err := load()
     if err != nil {
-        fmt.Printf("Error : %s \n", err)
+        debugf("Error : %s \n", err)
         return
     }
     data.Write(b)

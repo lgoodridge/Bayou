@@ -243,6 +243,27 @@ func TestServerAntiEntropy(t *testing.T) {
     Log.Println("Test not implemented.")
 }
 
+func createNetwork(testName string, numClusters int) []BayouServer, []*rpc.Client {
+    serverList := make([]BayouServer, numClusters)
+    clientList := make([]*rpc.Client, numClusters)
+    port := 1111
+    for i := 0; i < numClusters; i++ {
+        commitDB := getDB(testName + i + ".commit.db", true)
+        fullDB := getDB(testName + i + ".full.db", true)
+        sever := NewBayouServer(i, client, commitDB1, fullDB1, port + i)
+        serverList[i] = server
+        clientList[i] = startWCClient(port + i)
+    }
+    return serverList, clientList
+}
+
+func removeNetwork(servers []BayouServer, clients []*rpc.Client) {
+    cleanupClients(clients)
+    for _, server := range servers {
+        server.Kill()
+    }
+}
+
 /* Tests server persistence and recovery */
 func TestServerPersist(t *testing.T) {
     Log.Println("Test not implemented.")
