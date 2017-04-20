@@ -489,7 +489,7 @@ func (server *BayouServer) savePersist() {
     err = enc.Encode(server.ErrorLog)
     check(err)
 
-    save(data.Bytes())
+    save(data.Bytes(), server.id)
 }
 
 // TODO (David)
@@ -500,7 +500,7 @@ func (server *BayouServer) loadPersist() {
 // TODO: It is likely that each sub group needs
 //       to be registered in order to gob correctly
 //    gob.register(VectorClock)
-    b, err := load()
+    b, err := load(server.id)
     if err != nil {
         debugf("Error : %s \n", err)
         return
