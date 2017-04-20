@@ -78,6 +78,7 @@ type LogEntry struct {
 
 /* AntiEntropy RPC arguments structure */
 type AntiEntropyArgs struct {
+    SenderID      int
     CommitSet     []LogEntry
     TentativeSet  []LogEntry
     OmitTimestamp VectorClock
@@ -85,9 +86,11 @@ type AntiEntropyArgs struct {
 
 /* AntiEntropy RPC reply structure */
 type AntiEntropyReply struct {
+    Succeeded     bool
+    MustUpdateLog bool
     CommitSet     []LogEntry
     TentativeSet  []LogEntry
-    MustUpdateLog bool
+    OmitTimestamp VectorClock
 }
 
 /* Ping RPC arguments structure */
@@ -223,6 +226,31 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
     var otherCommitClock VectorClock
     var otherTentativeClock VectorClock
 
+    var minOmitTimestamp VectorClock
+    timestampsDiffer := false
+    myOmitTimestamp := server.Omitted[args.SenderID]
+
+    // If the omit timestamps are not the same, fail
+    // immediately and send back the lower timestamp
+    if myOmitTimestamp.LessThan(args.OmitTimestamp) {
+        timestampsDiffer = true
+        minOmitTimestamp = myOmitTimestamp
+    } else if args.OmitTimestamp.LessThan(myOmitTimestamp) {
+        timestampsDiffer = true
+        minOmitTimestamp = args.OmitTimestamp
+    }
+    if timestampsDiffer {
+        debugf("Omit timestamps for server %d and %d do not match!\n" +
+                "Receiver: %s\nSender: %s", server.id, args.SenderID,
+                myOmitTimestamp.String(), args.OmitTimestamp.String())
+        reply.Succeeded = false
+        reply.MustUpdateLog = false
+        reply.CommitSet = nil
+        reply.TentativeSet = nil
+        reply.OmitTimestamp = minOmitTimestamp
+        return nil
+    }
+
     // Calculate the other server's commit and tentative clock
     if len(args.CommitSet) == 0 {
         otherCommitClock = args.OmitTimestamp
@@ -250,15 +278,35 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
         useMyLog = otherTentativeClock.LessThan(server.tentativeClock)
     }
 
-    // Update server state if necessary
+    targetIndex := getLengthAtTime(server.CommitLog, args.OmitTimestamp)
+    sharedEndIndex := len(server.CommitLog)
+    if useMyLog {
+        sharedEndIndex = targetIndex + len(args.CommitSet)
+    }
+
+    // Ensure all shared commits are the same
+    var myEntry LogEntry
+    var otherEntry LogEntry
+    for i := targetIndex; i < sharedEndIndex; i++ {
+        myEntry = server.CommitLog[i]
+        otherEntry = args.CommitSet[i - targetIndex]
+        if myEntry.WriteID != otherEntry.WriteID {
+            Log.Fatal("The commit logs of server %d and %d have diverged!\n" +
+                    "Receiver: %s\nSender: %s", server.id, args.SenderID,
+                    logToString(server.CommitLog[targetIndex:]),
+                    logToString(args.CommitSet))
+        }
+    }
+
+    // Update server state as necessary
     if !useMyLog {
         server.matchLog(args.CommitSet, args.TentativeSet, args.OmitTimestamp)
         server.updateClocks()
     }
+    server.Omitted[args.SenderID] = server.commitClock
 
     // Respond with the chosen results
     if useMyLog {
-        targetIndex := getInsertIndex(server.CommitLog, args.OmitTimestamp)
         reply.CommitSet = make([]LogEntry, len(server.CommitLog) - targetIndex)
         copy(server.CommitLog[targetIndex:], reply.CommitSet)
         reply.TentativeSet = make([]LogEntry, len(server.TentativeLog))
@@ -267,7 +315,9 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
         reply.CommitSet = make([]LogEntry, 0)
         reply.TentativeSet = make([]LogEntry, 0)
     }
+    reply.Succeeded = true
     reply.MustUpdateLog = useMyLog
+    reply.OmitTimestamp = server.commitClock
     return nil
 }
 
@@ -379,7 +429,7 @@ func (server *BayouServer) startRPCServer(port int) {
 /* Rollsback the database, and applies log entries so that *
  * this server's log matches the provided write sets       */
 func (server *BayouServer) matchLog(commitSet []LogEntry,
-        tentativeSet []LogEntry, omitTimestamp VectorClock) {
+        tentativeSet []LogEntry, rollbackTime VectorClock) {
 }
 
 /* Applies an operation to the server's database      *
@@ -416,18 +466,16 @@ func (server *BayouServer) applyToDB(toCommit bool, op Operation,
     return
 }
 
-/* Rolls back the full view to just after    *
- * the log entry with the specified write ID */
-func (server *BayouServer) rollbackDB(rollbackID int) {
-    server.logLock.Lock()
+/* Rolls back the full view to the state  *
+ * it possessed at the provided timestamp */
+func (server *BayouServer) rollbackDB(rollbackTime VectorClock) {
     server.dbLock.Lock()
     defer server.dbLock.Unlock()
-    defer server.logLock.Unlock()
 
     // Apply undo operations until we find the target
     targetIndex := -1
     for i := len(server.TentativeLog) - 1; i >= 0; i-- {
-        if server.TentativeLog[i].WriteID == rollbackID {
+        if rollbackTime.LessThan(server.TentativeLog[i].Timestamp) {
             targetIndex = i
             break
         }
@@ -436,13 +484,14 @@ func (server *BayouServer) rollbackDB(rollbackID int) {
             server.UndoLog[targetIndex].Merge)
     }
 
-    // If the target entry was never found in the tentative log,
-    // and its not the latest commit entry, we are trying to
-    // rollback committed entries, which is not allowed
+    // If all tentative writes occurred after the target time, and
+    // the latest commit entry also occurred after the target time,
+    // we are trying to rollback committed entries, which is not allowed
     if targetIndex == -1 && len(server.CommitLog) > 0 &&
-            server.CommitLog[len(server.CommitLog) - 1].WriteID != rollbackID {
+            !rollbackTime.LessThan(
+                    server.CommitLog[len(server.CommitLog) - 1].Timestamp) {
         errMsg := fmt.Sprintf("Programmer Error: Attempted to rollback " +
-                "committed entries (Rollback ID: %d)", rollbackID)
+        "committed entries (Rollback Time: %s)", rollbackTime.String())
         Log.Fatal(errMsg)
     }
 
@@ -479,9 +528,9 @@ func (server *BayouServer) loadPersist() {
  *   LOG METHODS   *
  *******************/
 
-/* Returns index after the first entry in the log *
- * with a timestamp less than the one provided    */
-func getInsertIndex(log []LogEntry, targetTimestamp VectorClock) int {
+/* Returns the length of the log at the provided timestamp   *
+ * aka The number of entries that occurred by the given time */
+func getLengthAtTime(log []LogEntry, targetTimestamp VectorClock) int {
     var searchIndex int
     for searchIndex = len(log) - 1; searchIndex >= 0; searchIndex-- {
         if targetTimestamp.LessThan(log[searchIndex].Timestamp) {
