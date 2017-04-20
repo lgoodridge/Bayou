@@ -81,6 +81,7 @@ type AntiEntropyArgs struct {
     SenderID      int
     CommitSet     []LogEntry
     TentativeSet  []LogEntry
+    UndoSet       []LogEntry
     OmitTimestamp VectorClock
 }
 
@@ -90,6 +91,7 @@ type AntiEntropyReply struct {
     MustUpdateLog bool
     CommitSet     []LogEntry
     TentativeSet  []LogEntry
+    UndoSet       []LogEntry
     OmitTimestamp VectorClock
 }
 
@@ -247,6 +249,7 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
         reply.MustUpdateLog = false
         reply.CommitSet = nil
         reply.TentativeSet = nil
+        reply.UndoSet = nil
         reply.OmitTimestamp = minOmitTimestamp
         return nil
     }
@@ -291,7 +294,7 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
         myEntry = server.CommitLog[i]
         otherEntry = args.CommitSet[i - targetIndex]
         if myEntry.WriteID != otherEntry.WriteID {
-            Log.Fatal("The commit logs of server %d and %d have diverged!\n" +
+            Log.Fatalf("The commit logs of server %d and %d have diverged!\n" +
                     "Receiver: %s\nSender: %s", server.id, args.SenderID,
                     logToString(server.CommitLog[targetIndex:]),
                     logToString(args.CommitSet))
@@ -300,20 +303,23 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
 
     // Update server state as necessary
     if !useMyLog {
-        server.matchLog(args.CommitSet, args.TentativeSet, args.OmitTimestamp)
-        server.updateClocks()
+        server.matchLog(args.CommitSet, args.TentativeSet, args.UndoSet,
+                args.OmitTimestamp)
     }
     server.Omitted[args.SenderID] = server.commitClock
 
     // Respond with the chosen results
     if useMyLog {
         reply.CommitSet = make([]LogEntry, len(server.CommitLog) - targetIndex)
-        copy(server.CommitLog[targetIndex:], reply.CommitSet)
+        copy(reply.CommitSet, server.CommitLog[targetIndex:])
         reply.TentativeSet = make([]LogEntry, len(server.TentativeLog))
-        copy(server.TentativeLog, reply.TentativeSet)
+        copy(reply.TentativeSet, server.TentativeLog)
+        reply.UndoSet = make([]LogEntry, len(server.UndoLog))
+        copy(reply.UndoSet, server.UndoLog)
     } else {
-        reply.CommitSet = make([]LogEntry, 0)
-        reply.TentativeSet = make([]LogEntry, 0)
+        reply.CommitSet = nil
+        reply.TentativeSet = nil
+        reply.UndoSet = nil
     }
     reply.Succeeded = true
     reply.MustUpdateLog = useMyLog
@@ -425,11 +431,37 @@ func (server *BayouServer) startRPCServer(port int) {
     debugf("Server #%d listening on port %d", server.id, port)
 }
 
-// TODO
 /* Rollsback the database, and applies log entries so that *
  * this server's log matches the provided write sets       */
 func (server *BayouServer) matchLog(commitSet []LogEntry,
-        tentativeSet []LogEntry, rollbackTime VectorClock) {
+        tentativeSet []LogEntry, undoSet []LogEntry,
+        rollbackTime VectorClock) {
+    // Rollback the database to the specified time
+    server.rollbackDB(rollbackTime)
+    server.updateClocks()
+
+    // Ensure the length of the tentative and undo sets are the same
+    if len(tentativeSet) != len(undoSet) {
+        Log.Fatalf("Length of tentative and undo sets do not match!\n" +
+                "Tentative Set: %s\nUndo Set: %s\n",
+                logToString(tentativeSet), logToString(undoSet))
+    }
+
+    // Add all entries to the appropiate log, and apply to database
+    for _, entry := range commitSet {
+        server.CommitLog = append(server.CommitLog, entry)
+        server.applyToDB(true, entry.Op, entry.Check, entry.Merge)
+    }
+    var tentEntry LogEntry
+    var undoEntry LogEntry
+    for i, _ := range tentativeSet {
+        tentEntry = tentativeSet[i]
+        undoEntry = undoSet[i]
+        server.TentativeLog = append(server.TentativeLog, tentEntry)
+        server.UndoLog = append(server.UndoLog, undoEntry)
+        server.applyToDB(false, tentEntry.Op, tentEntry.Check, tentEntry.Merge)
+    }
+    server.updateClocks()
 }
 
 /* Applies an operation to the server's database      *
