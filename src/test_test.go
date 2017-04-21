@@ -244,26 +244,39 @@ func TestServerAntiEntropy(t *testing.T) {
     Log.Println("Test not implemented.")
 }
 
-func createNetwork(testName string, numClusters int) ([]*BayouServer, []*rpc.Client) {
+func createNetwork(testName string, numClusters int) ([]*BayouServer, []*BayouClient) {
     serverList := make([]*BayouServer, numClusters)
-    clientList := make([]*rpc.Client, numClusters)
+    clientList := make([]*BayouClient, numClusters)
+    rpcClients := make([]*rpc.Client, numClusters)
     port := 1111
     for i := 0; i < numClusters; i++ {
         id := fmt.Sprintf("%d", i)
         commitDB := getDB(testName + id + ".commit.db", true)
         fullDB := getDB(testName + id + ".full.db", true)
-        server := NewBayouServer(i, clientList, commitDB, fullDB, port + i)
+        // TODO: this has to be wrong, I mean we are passing an array of uninitialized pointers
+        server := NewBayouServer(i, rpcClients, commitDB, fullDB, port + i)
         serverList[i] = server
-        clientList[i] = startWCClient(port + i)
+        rpcClients[i] = startWCClient(port + i)
+        clientList[i] = &BayouClient{i, rpcClients[i]}
     }
     return serverList, clientList
 }
 
-func removeNetwork(servers []BayouServer, clients []*rpc.Client) {
-    cleanupClients(clients)
+func removeNetwork(servers []*BayouServer, clients []*BayouClient) {
+    for _, client := range clients {
+        client.server.Close()
+    }
     for _, server := range servers {
         server.Kill()
     }
+}
+
+/* Tests an RPC write no conflict */
+func TestDBWrite(t *testing.T) {
+    servers, clients :=createNetwork("TestWrite", 1)
+    defer removeNetwork(servers, clients)
+
+    clients[0].ClaimRoom("Frist", 1, 1)
 }
 
 /* Tests server persistence and recovery */
