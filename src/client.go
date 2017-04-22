@@ -16,12 +16,8 @@ type BayouClient struct {
 }
 
 /****************************
- * HELPER METHODS
- ****************************/
-/****************************
  *   BAYOU CLIENT METHODS   *
  ****************************/
-
 
 /* Returns a new Bayou Client                  *
  * Connects to its server on the provided port */
@@ -36,45 +32,10 @@ func NewBayouClient(id int, port int) *BayouClient {
     return client
 }
 
-
-/* Sends a Read RPC to the client's server    *
- * Returns an error if the RPC fails, and     *
- * the result of the read query if successful */
-func (client *BayouClient) sendReadRPC(readfunc ReadFunc,
-        fromCommit bool) (err error, data interface{}) {
-    readArgs := &ReadArgs{readfunc, fromCommit}
-    var readReply ReadReply
-
-    // Send RPC and process the results
-    err = client.server.Call("BayouServer.Read", readArgs, &readReply)
-    if err != nil {
-        data = readReply.Data
-    } else {
-        data = nil
-    }
-    return
-}
-
-/* Sends a Write RPC to the client's server              *
- * Returns an error if the RPC fails, and if successful, *
- * whether the write had a conflict and whether it was   *
- * eventually resolved                                   */
-func (client *BayouClient) sendWriteRPC(op Operation, undo Operation,
-        check DepCheck, merge MergeProc) (err error, hasConflict bool,
-        wasResolved bool) {
-    writeArgs := &WriteArgs{randomInt(), op, undo, check, merge}
-    var writeReply WriteReply
-
-    // Send RPC and process the results
-    err = client.server.Call("BayouServer.Write", writeArgs, &writeReply)
-    if err != nil {
-        hasConflict = writeReply.HasConflict
-        wasResolved = writeReply.WasResolved
-    } else {
-        hasConflict = false
-        wasResolved = false
-    }
-    return
+/* "Kills" a Bayou Client, closing *
+ * connection with the server      */
+func (client *BayouClient) Kill() {
+    client.server.Close()
 }
 
 // TODO (David)
@@ -125,4 +86,48 @@ func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
     }
     err, hasConflict, wasResolved := client.sendWriteRPC(op, undo, check, merge)
     debugf("HadConflict: %d wasResolved: %d \n %s\n", hasConflict, wasResolved, err)
+}
+
+/**********************
+ *   HELPER METHODS   *
+ **********************/
+
+/* Sends a Read RPC to the client's server    *
+ * Returns an error if the RPC fails, and     *
+ * the result of the read query if successful */
+func (client *BayouClient) sendReadRPC(readfunc ReadFunc,
+        fromCommit bool) (err error, data interface{}) {
+    readArgs := &ReadArgs{readfunc, fromCommit}
+    var readReply ReadReply
+
+    // Send RPC and process the results
+    err = client.server.Call("BayouServer.Read", readArgs, &readReply)
+    if err != nil {
+        data = readReply.Data
+    } else {
+        data = nil
+    }
+    return
+}
+
+/* Sends a Write RPC to the client's server              *
+ * Returns an error if the RPC fails, and if successful, *
+ * whether the write had a conflict and whether it was   *
+ * eventually resolved                                   */
+func (client *BayouClient) sendWriteRPC(op Operation, undo Operation,
+        check DepCheck, merge MergeProc) (err error, hasConflict bool,
+        wasResolved bool) {
+    writeArgs := &WriteArgs{randomInt(), op, undo, check, merge}
+    var writeReply WriteReply
+
+    // Send RPC and process the results
+    err = client.server.Call("BayouServer.Write", writeArgs, &writeReply)
+    if err != nil {
+        hasConflict = writeReply.HasConflict
+        wasResolved = writeReply.WasResolved
+    } else {
+        hasConflict = false
+        wasResolved = false
+    }
+    return
 }

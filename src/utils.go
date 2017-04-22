@@ -15,6 +15,18 @@ import (
 /* Whether to display debug output */
 const DEBUG_MODE bool = false
 
+/**************************
+ *    ERROR UTILITIES     *
+ **************************/
+
+/* Prints error message and crashes if error exists  */
+func check(e error, prefix string) {
+    if e != nil {
+        Log.Fatal(prefix + e.Error())
+    }
+}
+
+
 /****************************
  *    LOGGING UTILITIES     *
  ****************************/

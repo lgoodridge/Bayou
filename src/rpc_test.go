@@ -20,7 +20,6 @@ type WC int
 /* WordCount RPC arguments structure */
 type WordCountArgs struct {
     Message string
-    f func()
 }
 
 /* WordCount RPC reply structure */
@@ -30,7 +29,6 @@ type WordCountReply struct {
 
 /* Counts the words in the sent message */
 func (wc *WC) WordCount(args *WordCountArgs, reply *WordCountReply) error {
-    args.f()
     reply.Length = len(strings.Split(args.Message, " "))
     return nil
 }
@@ -76,7 +74,7 @@ func startWCClient(port int) *rpc.Client {
  * If async is true, the call is sent asynchronously. *
  * Returns the number of words in the message.        */
 func sendRPC(client *rpc.Client, message string, async bool) int {
-    args := WordCountArgs{message, func(){ Log.Fatal("ANON FUNC")}}
+    args := WordCountArgs{message}
     var reply WordCountReply
 
     // Send RPC synchronously

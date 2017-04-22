@@ -206,9 +206,8 @@ func NewBayouServer(id int, peers []*rpc.Client, commitDB *BayouDB,
     return server
 }
 
-/* Formally "begins" a Bayou Server                                 *
- * Starts inter-server communication and other tasks                *
- * Starts go-routines for long-running work and returns immediately */
+/* Formally "begins" a Bayou Server                  *
+ * Starts inter-server communication and other tasks */
 func (server *BayouServer) Begin() {
     // TODO: Start Anti-Entropy communication
     debugf("Server $%d begun", server.id)
@@ -548,7 +547,6 @@ func (server *BayouServer) updateClocks() {
     }
 }
 
-// TODO (David)
 /* Saves server data to stable storage */
 func (server *BayouServer) savePersist() {
     var data bytes.Buffer
@@ -556,24 +554,23 @@ func (server *BayouServer) savePersist() {
     enc := gob.NewEncoder(&data)
 
     err := enc.Encode(server.IsPrimary)
-    check(err)
+    check(err, "Error encoding: ")
 
     err = enc.Encode(server.CommitLog)
-    check(err)
+    check(err, "Error encoding: ")
 
     err = enc.Encode(server.TentativeLog)
-    check(err)
+    check(err, "Error encoding: ")
 
     err = enc.Encode(server.UndoLog)
-    check(err)
+    check(err, "Error encoding: ")
 
     err = enc.Encode(server.ErrorLog)
-    check(err)
+    check(err, "Error encoding: ")
 
     save(data.Bytes(), server.id)
 }
 
-// TODO (David)
 /* Loads server data from stable storage */
 func (server *BayouServer) loadPersist() {
     var data bytes.Buffer
@@ -591,19 +588,19 @@ func (server *BayouServer) loadPersist() {
     dec := gob.NewDecoder(&data)
 
     err = dec.Decode(&server.IsPrimary)
-    check(err)
+    check(err, "Error decoding: ")
 
     err = dec.Decode(&server.CommitLog)
-    check(err)
+    check(err, "Error decoding: ")
 
     err = dec.Decode(&server.TentativeLog)
-    check(err)
+    check(err, "Error decoding: ")
 
     err = dec.Decode(&server.UndoLog)
-    check(err)
+    check(err, "Error decoding: ")
 
     err = dec.Decode(&server.ErrorLog)
-    check(err)
+    check(err, "Error decoding: ")
 }
 
 /*******************
