@@ -62,7 +62,7 @@ func startWCServer(port int) net.Listener {
 /* Start up a client and connect to localhost *
  * RPC server on the specified port.          *
  * Returns the connected client.              */
-func startWCClient(port int) *rpc.Client {
+func startRPCClient(port int) *rpc.Client {
     client, err := rpc.DialHTTP("tcp", "localhost:"+strconv.Itoa(port))
     if err != nil {
         Log.Fatal("Failed to connect to server: ", err)
@@ -114,7 +114,7 @@ func TestRPCBasic(t *testing.T) {
     closer := startWCServer(port)
     defer closer.Close()
 
-    client := startWCClient(port)
+    client := startRPCClient(port)
     defer client.Close()
 
     result := sendRPC(client, "This message has five words.", false)
@@ -129,9 +129,9 @@ func TestRPCConcurrent(t *testing.T) {
     closer := startWCServer(port)
     defer closer.Close()
 
-    client1 := startWCClient(port)
-    client2 := startWCClient(port)
-    client3 := startWCClient(port)
+    client1 := startRPCClient(port)
+    client2 := startRPCClient(port)
+    client3 := startRPCClient(port)
     defer client1.Close()
     defer client2.Close()
     defer client3.Close()
@@ -174,10 +174,10 @@ func TestRPCMultipleServers(t *testing.T) {
     defer closer1.Close()
     defer closer2.Close()
 
-    client1a := startWCClient(port1)
-    client1b := startWCClient(port1)
-    client2a := startWCClient(port2)
-    client2b := startWCClient(port2)
+    client1a := startRPCClient(port1)
+    client1b := startRPCClient(port1)
+    client2a := startRPCClient(port2)
+    client2b := startRPCClient(port2)
     defer client1a.Close()
     defer client1b.Close()
     defer client2a.Close()

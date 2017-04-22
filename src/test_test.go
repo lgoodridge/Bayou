@@ -153,7 +153,7 @@ func setupClients(clients []*rpc.Client, ports []int) {
         Log.Fatal("Test Error: Length of client and port arrays do not match.")
     }
     for idx, port := range ports {
-        clients[idx] = startWCClient(port)
+        clients[idx] = startRPCClient(port)
     }
 }
 
@@ -266,7 +266,7 @@ func createNetwork(testName string, numClusters int) ([]*BayouServer,
         fullDB := getDB(testName + id + ".full.db", true)
         server := NewBayouServer(i, rpcClients, commitDB, fullDB, port + i)
         serverList[i] = server
-        rpcClients[i] = startWCClient(port + i)
+        rpcClients[i] = startRPCClient(port + i)
         clientList[i] = &BayouClient{i, rpcClients[i]}
     }
     return serverList, clientList

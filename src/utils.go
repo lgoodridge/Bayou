@@ -1,6 +1,7 @@
 package bayou
 
 import (
+    "fmt"
     "io/ioutil"
     "log"
     "math/rand"
@@ -25,7 +26,6 @@ func check(e error, prefix string) {
         Log.Fatal(prefix + e.Error())
     }
 }
-
 
 /****************************
  *    LOGGING UTILITIES     *
@@ -70,3 +70,32 @@ func init() {
 func randomInt() int {
     return random.Int()
 }
+
+/******************************
+ *    BAYOU LOG UTILITIES     *
+ ******************************/
+
+/* Returns the length of the log at the provided timestamp   *
+ * aka The number of entries that occurred by the given time */
+func getLengthAtTime(log []LogEntry, targetTimestamp VectorClock) int {
+    var searchIndex int
+    for searchIndex = len(log) - 1; searchIndex >= 0; searchIndex-- {
+        if targetTimestamp.LessThan(log[searchIndex].Timestamp) {
+            break
+        }
+    }
+    return searchIndex + 1
+}
+
+func logToString(log []LogEntry) string {
+    logStr := ""
+    for _, entry := range log {
+        logStr = logStr + entry.String() + "\n"
+    }
+    return logStr
+}
+
+func (entry LogEntry) String() string {
+    return fmt.Sprintf("#%d: ", entry.WriteID) + entry.Op.Desc
+}
+

@@ -15,6 +15,7 @@ Reimplementation of Bayou for COS 518 project.
 # Lance
 
 * Server Start and Kill methods
+* Change server RPCs to use strings instead
 
 # Done
 
