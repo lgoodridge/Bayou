@@ -16,8 +16,12 @@ type BayouClient struct {
 }
 
 /****************************
+ * HELPER METHODS
+ ****************************/
+/****************************
  *   BAYOU CLIENT METHODS   *
  ****************************/
+
 
 /* Returns a new Bayou Client                  *
  * Connects to its server on the provided port */
@@ -32,18 +36,6 @@ func NewBayouClient(id int, port int) *BayouClient {
     return client
 }
 
-// TODO (David)
-/* Returns the status of the room with provided name at the provided time *
- * If onlyStable is true, tentative claims are not considered             */
-func (client *BayouClient) CheckRoom(name string, day int, hour int,
-        onlyStable bool) Room {
-    return Room{}
-}
-
-// TODO (David)
-/* Claims a room at the provided date and time */
-func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
-}
 
 /* Sends a Read RPC to the client's server    *
  * Returns an error if the RPC fails, and     *
@@ -83,4 +75,54 @@ func (client *BayouClient) sendWriteRPC(op Operation, undo Operation,
         wasResolved = false
     }
     return
+}
+
+// TODO (David)
+/* Returns the status of the room with provided name at the provided time *
+ * If onlyStable is true, tentative claims are not considered             */
+func (client *BayouClient) CheckRoom(name string, day int, hour int,
+        onlyStable bool) Room {
+    return Room{}
+}
+
+// TODO (David)
+/* Claims a room at the provided date and time */
+func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
+    startDate := createDate(day, hour)
+    endDate := createDate(day, hour + 1)
+    room := Room{"ID", name, startDate, endDate}
+    // add room to database
+    opFunc := func (db *BayouDB) {
+        sql_additem := `
+        INSERT OR REPLACE INTO rooms(
+            Id,
+            Name,
+            StartTime,
+            EndTime
+        ) values(?, ?, ?, ?)
+        `
+        stmt, err := db.Prepare(sql_additem)
+        if err != nil { Log.Fatal(err) }
+        defer stmt.Close()
+
+        _, err2 := stmt.Exec(room.Id, room.Name,
+        room.StartTime, room.EndTime)
+        if err2 != nil { Log.Fatal(err2) }
+    }
+
+    op := Operation{ opFunc, "Claiming a Room"};
+    undoFunc := func (db *BayouDB) {
+        // TODO: implement
+    }
+    undo := Operation{ undoFunc, "Undo Claiming a Room"};
+    check := func (db *BayouDB) bool {
+        // TODO: implement
+        return true
+    }
+    merge := func (db *BayouDB) bool {
+        // TODO: implement
+        return true
+    }
+    err, hasConflict, wasResolved := client.sendWriteRPC(op, undo, check, merge)
+    debugf("HadConflict: %d wasResolved: %d \n %s\n", hasConflict, wasResolved, err)
 }

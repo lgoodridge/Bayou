@@ -6,6 +6,8 @@ import (
     "net/http"
     "net/rpc"
     "sync"
+    "encoding/gob"
+    "bytes"
 )
 
 /*****************
@@ -549,11 +551,59 @@ func (server *BayouServer) updateClocks() {
 // TODO (David)
 /* Saves server data to stable storage */
 func (server *BayouServer) savePersist() {
+    var data bytes.Buffer
+//    gob.register(VectorClock)
+    enc := gob.NewEncoder(&data)
+
+    err := enc.Encode(server.IsPrimary)
+    check(err)
+
+    err = enc.Encode(server.CommitLog)
+    check(err)
+
+    err = enc.Encode(server.TentativeLog)
+    check(err)
+
+    err = enc.Encode(server.UndoLog)
+    check(err)
+
+    err = enc.Encode(server.ErrorLog)
+    check(err)
+
+    save(data.Bytes(), server.id)
 }
 
 // TODO (David)
 /* Loads server data from stable storage */
 func (server *BayouServer) loadPersist() {
+    var data bytes.Buffer
+    var b  []byte
+// TODO: It is likely that each sub group needs
+//       to be registered in order to gob correctly
+//    gob.register(VectorClock)
+    b, err := load(server.id)
+    if err != nil {
+        debugf("Error : %s \n", err)
+        return
+    }
+    data.Write(b)
+
+    dec := gob.NewDecoder(&data)
+
+    err = dec.Decode(&server.IsPrimary)
+    check(err)
+
+    err = dec.Decode(&server.CommitLog)
+    check(err)
+
+    err = dec.Decode(&server.TentativeLog)
+    check(err)
+
+    err = dec.Decode(&server.UndoLog)
+    check(err)
+
+    err = dec.Decode(&server.ErrorLog)
+    check(err)
 }
 
 /*******************

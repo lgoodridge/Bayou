@@ -6,6 +6,10 @@ Reimplementation of Bayou for COS 518 project.
 
 # David
 
+* Write a checkEqual function for servers
+* Simplify testing framework
+  - Needs a create(name string) function
+  - Needs easier way to send command
 * Client CheckRoom and ClaimRoom methods
 
 # Lance
