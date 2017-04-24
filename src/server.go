@@ -14,13 +14,6 @@ import (
  *   CONSTANTS   *
  *****************/
 
-// TODO: Give these actual values, and implement checkpointing
-/* Save a database checkpoint after these many tentative writes */
-const OPS_PER_CHECKPOINT int = -1
-/* Save these many checkpoints (thus, you can rollback a *
- * maximum of NUM_CHECKPOINTS * OPS_PER_CHECKPOINT ops)  */
-const NUM_CHECKPOINTS int = -1
-
 /************************
  *   TYPE DEFINITIONS   *
  ************************/
@@ -73,9 +66,9 @@ type BayouServer struct {
 type LogEntry struct {
     WriteID   int
     Timestamp VectorClock
-    Op        Operation
-    Check     DepCheck
-    Merge     MergeProc
+    Query     string
+    Check     string
+    Merge     string
 }
 
 /* AntiEntropy RPC arguments structure */
@@ -109,7 +102,7 @@ type PingReply struct {
 
 /* Bayou Read RPC arguments structure */
 type ReadArgs struct {
-    Read       ReadFunc
+    Query      string
     FromCommit bool
 }
 
@@ -121,10 +114,10 @@ type ReadReply struct {
 /* Bayou Write RPC arguments structure */
 type WriteArgs struct {
     WriteID int
-    Op      Operation
-    Undo    Operation
-    Check   DepCheck
-    Merge   MergeProc
+    Query   string
+    Undo    string
+    Check   string
+    Merge   string
 }
 
 /* Bayou Write RPC reply structure */
@@ -132,28 +125,6 @@ type WriteReply struct {
     HasConflict bool
     WasResolved bool
 }
-
-/* Update or Undo operation type               *
- * Contains a function operating on the        *
- * database and a description of that function */
-type Operation struct {
-    Query func(*BayouDB)
-    Desc  string
-}
-
-/* Dependency check function type:   *
- * Takes a database, and returns     *
- * whether the dependencies are held */
-type DepCheck func(*BayouDB) bool
-
-/* Merge process function type:      *
- * Takes a database, and returns     *
- * whether the conflict was resolved */
-type MergeProc func(*BayouDB) bool
-
-/* Read function type:                       *
- * Takes a database, and returns some result */
-type ReadFunc func(*BayouDB) interface{}
 
 /****************************
  *   BAYOU SERVER METHODS   *
@@ -191,11 +162,11 @@ func NewBayouServer(id int, peers []*rpc.Client, commitDB *BayouDB,
 
     // Replay all writes to their respective database
     for _, entry := range server.CommitLog {
-        server.applyToDB(true, entry.Op, entry.Check, entry.Merge)
-        server.applyToDB(false, entry.Op, entry.Check, entry.Merge)
+        server.applyToDB(true, entry.Query, entry.Check, entry.Merge)
+        server.applyToDB(false, entry.Query, entry.Check, entry.Merge)
     }
     for _, entry := range server.TentativeLog {
-        server.applyToDB(false, entry.Op, entry.Check, entry.Merge)
+        server.applyToDB(false, entry.Query, entry.Check, entry.Merge)
     }
     server.updateClocks()
 
@@ -344,12 +315,13 @@ func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) error {
     server.dbLock.Lock()
     defer server.dbLock.Unlock()
 
-    var data interface{}
+    var db *BayouDB
     if (args.FromCommit) {
-        data = args.Read(server.commitDB)
+        db = server.commitDB
     } else {
-        data = args.Read(server.fullDB)
+        db = server.fullDB
     }
+    data := db.Read(args.Query)
 
     reply.Data = data
     return nil
@@ -368,10 +340,9 @@ func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) error {
     }
 
     // Create entries for each of the logs
-    writeEntry := LogEntry{args.WriteID, writeClock, args.Op,
+    writeEntry := LogEntry{args.WriteID, writeClock, args.Query,
             args.Check, args.Merge}
-    undoEntry := LogEntry{args.WriteID, writeClock, args.Op,
-            func(db *BayouDB)(bool){return true}, nil}
+    undoEntry := LogEntry{args.WriteID, writeClock, args.Undo, "", ""}
 
     server.logLock.Lock()
     defer server.logLock.Unlock()
@@ -386,13 +357,13 @@ func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) error {
     }
 
     // Apply write to database(s) and send unresolved conflicts to error log
-    hasConflict, resolved := server.applyToDB(false, args.Op,
+    hasConflict, resolved := server.applyToDB(false, args.Query,
             args.Check, args.Merge)
     if hasConflict && !resolved {
         server.ErrorLog = append(server.ErrorLog, writeEntry)
     }
     if server.IsPrimary {
-        server.applyToDB(true, args.Op, args.Check, args.Merge)
+        server.applyToDB(true, args.Query, args.Check, args.Merge)
     }
     server.savePersist()
 
@@ -451,7 +422,7 @@ func (server *BayouServer) matchLog(commitSet []LogEntry,
     // Add all entries to the appropiate log, and apply to database
     for _, entry := range commitSet {
         server.CommitLog = append(server.CommitLog, entry)
-        server.applyToDB(true, entry.Op, entry.Check, entry.Merge)
+        server.applyToDB(true, entry.Query, entry.Check, entry.Merge)
     }
     var tentEntry LogEntry
     var undoEntry LogEntry
@@ -460,7 +431,8 @@ func (server *BayouServer) matchLog(commitSet []LogEntry,
         undoEntry = undoSet[i]
         server.TentativeLog = append(server.TentativeLog, tentEntry)
         server.UndoLog = append(server.UndoLog, undoEntry)
-        server.applyToDB(false, tentEntry.Op, tentEntry.Check, tentEntry.Merge)
+        server.applyToDB(false, tentEntry.Query, tentEntry.Check,
+                tentEntry.Merge)
     }
     server.updateClocks()
 }
@@ -470,8 +442,8 @@ func (server *BayouServer) matchLog(commitSet []LogEntry,
  * commit view, else it is applied to the full view   *
  * Returns whether there was a conflict, and if so,   *
  * whether it was resolved                            */
-func (server *BayouServer) applyToDB(toCommit bool, op Operation,
-        depcheck DepCheck, merge MergeProc) (hasConflict bool, resolved bool) {
+func (server *BayouServer) applyToDB(toCommit bool, query string,
+        depcheck string, merge string) (hasConflict bool, resolved bool) {
     // Get the database to apply the operation on
     db := server.fullDB
     if toCommit {
@@ -483,13 +455,13 @@ func (server *BayouServer) applyToDB(toCommit bool, op Operation,
 
     // If there are no dependency conflicts, apply the operation to
     // the database. If there is, try to apply the merge function
-    if (depcheck(db)) {
-        op.Query(db)
+    if (db.Check(depcheck)) {
+        db.Execute(query)
         hasConflict = false
         resolved = true
     } else {
         hasConflict = true
-        if (merge(db)) {
+        if (db.Check(merge)) {
             resolved = true
         } else {
             resolved = false
@@ -512,7 +484,7 @@ func (server *BayouServer) rollbackDB(rollbackTime VectorClock) {
             targetIndex = i
             break
         }
-        server.applyToDB(false, server.UndoLog[targetIndex].Op,
+        server.applyToDB(false, server.UndoLog[targetIndex].Query,
             server.UndoLog[targetIndex].Check,
             server.UndoLog[targetIndex].Merge)
     }

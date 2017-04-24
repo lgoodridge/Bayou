@@ -52,6 +52,11 @@ func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
     startDate := createDate(day, hour)
     endDate := createDate(day, hour + 1)
     room := Room{"ID", name, startDate, endDate}
+
+    debugf("Printing this so go doesn't complain: " + room.Name)
+
+    // TODO: Needs to be redone, sorry!  - Lance
+    /*
     // add room to database
     opFunc := func (db *BayouDB) {
         sql_additem := `
@@ -86,6 +91,7 @@ func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
     }
     err, hasConflict, wasResolved := client.sendWriteRPC(op, undo, check, merge)
     debugf("HadConflict: %d wasResolved: %d \n %s\n", hasConflict, wasResolved, err)
+    */
 }
 
 /**********************
@@ -95,9 +101,9 @@ func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
 /* Sends a Read RPC to the client's server    *
  * Returns an error if the RPC fails, and     *
  * the result of the read query if successful */
-func (client *BayouClient) sendReadRPC(readfunc ReadFunc,
+func (client *BayouClient) sendReadRPC(readQuery string,
         fromCommit bool) (err error, data interface{}) {
-    readArgs := &ReadArgs{readfunc, fromCommit}
+    readArgs := &ReadArgs{readQuery, fromCommit}
     var readReply ReadReply
 
     // Send RPC and process the results
@@ -114,10 +120,10 @@ func (client *BayouClient) sendReadRPC(readfunc ReadFunc,
  * Returns an error if the RPC fails, and if successful, *
  * whether the write had a conflict and whether it was   *
  * eventually resolved                                   */
-func (client *BayouClient) sendWriteRPC(op Operation, undo Operation,
-        check DepCheck, merge MergeProc) (err error, hasConflict bool,
+func (client *BayouClient) sendWriteRPC(writeQuery string, undoQuery string,
+        check string, merge string) (err error, hasConflict bool,
         wasResolved bool) {
-    writeArgs := &WriteArgs{randomInt(), op, undo, check, merge}
+    writeArgs := &WriteArgs{randomInt(), writeQuery, undoQuery, check, merge}
     var writeReply WriteReply
 
     // Send RPC and process the results

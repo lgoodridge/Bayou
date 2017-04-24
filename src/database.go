@@ -50,6 +50,39 @@ func (db *BayouDB) CreateTable() {
     if err != nil { Log.Fatal(err) }
 }
 
+/* Executes provided query on the database */
+func (db *BayouDB) Execute(query string) {
+    _, err := db.Exec(query)
+    check(err, "Error executing query (" + query + "): ")
+}
+
+/* Executes provided query on the   *
+ * database, and returns the result */
+func (db *BayouDB) Read(query string) interface{} {
+    rows, err := db.Query(query)
+    check(err, "Error executing read (" + query + "): ")
+    return rows
+}
+
+// TODO: I might not have done this properly, please take a look  - Lance
+/* Executes provided query on the database *
+ * and returns the (boolean) result        */
+func (db *BayouDB) Check(query string) bool {
+    rows, err := db.Query(query)
+    check(err, "Error executing check (" + query + "): ")
+    var boolResult bool
+    err = rows.Scan(&boolResult)
+    check(err, "Error scanning result of check (" + query + "): ")
+    return boolResult
+}
+
+/*********************************************
+ * TODO:
+ * Most of these methods should probably be
+ * refactored or implemented in the client?
+ *                                 - Lance
+ *********************************************/
+
 /*
  * Stores a list of items in the Database.
  * If the item exists already it will be

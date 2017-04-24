@@ -16,6 +16,10 @@ import (
 /* Whether to display debug output */
 const DEBUG_MODE bool = false
 
+/* Maximum number of characters to use when *
+ * printing a log entry's query string      */
+const MAX_QUERY_CHARS int = 50
+
 /**************************
  *    ERROR UTILITIES     *
  **************************/
@@ -96,6 +100,10 @@ func logToString(log []LogEntry) string {
 }
 
 func (entry LogEntry) String() string {
-    return fmt.Sprintf("#%d: ", entry.WriteID) + entry.Op.Desc
+    queryStr := entry.Query
+    if len(queryStr) > MAX_QUERY_CHARS {
+        queryStr = queryStr[:MAX_QUERY_CHARS] + "..."
+    }
+    return fmt.Sprintf("#%d: ", entry.WriteID) + entry.Query
 }
 
