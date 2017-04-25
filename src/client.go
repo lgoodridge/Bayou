@@ -49,11 +49,43 @@ func (client *BayouClient) CheckRoom(name string, day int, hour int,
 // TODO (David)
 /* Claims a room at the provided date and time */
 func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
-    startDate := createDate(day, hour)
-    endDate := createDate(day, hour + 1)
-    room := Room{"ID", name, startDate, endDate}
+//    startDate := createDate(day, hour)
+//    endDate := createDate(day, hour + 1)
+//    room := Room{"ID", name, startDate, endDate}
+//
+//    debugf("Printing this so go doesn't complain: " + room.Name)
+//    // TODO: Find out how to replace ? with value
+//    query := fmt.Sprintf(`
+//    INSERT OR REPLACE INTO rooms(
+//        Id,
+//        Name,
+//        StartTime,
+//        EndTime
+//    ) values(%d, %s, %s, %s)
+//    `, id, name, startDate, endDate);
+//
+//    // TODO: get startTxt and endTxt
+//    // TODO: Find out how to return a boolean
+//    check := fmt.Sprintf(`
+//    SELECT CASE WHEN EXISTS (
+//            SELECT *
+//            FROM rooms
+//            WHERE StartTime BETWEEN %s AND %s
+//    )
+//    THEN CAST(1 AS BIT)
+//    ELSE CAST(0 AS BIT) END
+//    `, startTime, endTime);
+//    // Always return false because we can't merge
+//    merge := `
+//    CAST(0 as BIT)
+//    `
+//
+//    undo := fmt.Sprintf(`
+//    DELETE FROM rooms
+//    WHERE Id = %d 
+//    `, id);
 
-    debugf("Printing this so go doesn't complain: " + room.Name)
+
 
     // TODO: Needs to be redone, sorry!  - Lance
     /*

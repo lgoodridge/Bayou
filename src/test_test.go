@@ -8,6 +8,8 @@ import (
     "path/filepath"
     "sync"
     "testing"
+    "database/sql"
+    _ "github.com/mattn/go-sqlite3"
 )
 
 /*************************
@@ -317,5 +319,68 @@ func TestNetworkBasic(t *testing.T) {
  * consistency in the face of network partitions */
 func TestNetworkPartition(t *testing.T) {
     Log.Println("Test not implemented.")
+}
+
+/* Tests that a Bayou network eventually reaches *
+ * consistency in the face of network partitions */
+func TestDumbassShitForDavid(t *testing.T) {
+    // Open the Datapath
+    const dbpath = "david.db"
+    db := getDB(dbpath, false)
+    defer db.Close()
+
+    // Create the DB table
+    db.CreateTable()
+
+    name := "Fine"
+    id := "1"
+    startDate := createDate(0, 0)
+    endDate := createDate(1, 5)
+    startTxt := startDate.Format("2006-01-02 03:04")
+    endTxt   := endDate.Format("2006-01-02 03:04")
+    query := fmt.Sprintf(`
+    INSERT OR REPLACE INTO rooms(
+        Id,
+        Name,
+        StartTime,
+        EndTime
+    ) values(%s, "%s", dateTime("%s"), dateTime("%s"))
+    `, id, name, startTxt, endTxt);
+    fmt.Println(query)
+    db.Execute(query)
+    exec := `
+        SELECT Id, Name, StartTime, EndTime 
+        FROM rooms
+        WHERE Id == 1
+    `
+
+    rows := (*sql.Rows)(db.Read(exec))
+    for rows.Next() {
+        item := Room{}
+
+        err2 := rows.Scan(&item.Id, &item.Name,
+            &item.StartTime, &item.EndTime)
+        if err2 != nil { Log.Fatal(err2) }
+
+        fmt.Println(item.Name);
+        fmt.Println(item.StartTime);
+        fmt.Println(item.EndTime);
+    }
+
+    check := fmt.Sprintf(`
+    SELECT CASE WHEN EXISTS (
+            SELECT *
+            FROM rooms
+            WHERE StartTime BETWEEN dateTime("%s") AND dateTime("%s")
+    )
+    THEN CAST(1 AS BIT)
+    ELSE CAST(0 AS BIT) END
+    `, startTxt, endTxt);
+    fmt.Println(db.Check(check))
+
+    merge := `
+    SELECT 0
+    `
+    fmt.Println(db.Check(merge))
 }
 

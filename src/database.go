@@ -58,7 +58,7 @@ func (db *BayouDB) Execute(query string) {
 
 /* Executes provided query on the   *
  * database, and returns the result */
-func (db *BayouDB) Read(query string) interface{} {
+func (db *BayouDB) Read(query string) *sql.Rows {
     rows, err := db.Query(query)
     check(err, "Error executing read (" + query + "): ")
     return rows
@@ -70,10 +70,13 @@ func (db *BayouDB) Read(query string) interface{} {
 func (db *BayouDB) Check(query string) bool {
     rows, err := db.Query(query)
     check(err, "Error executing check (" + query + "): ")
-    var boolResult bool
-    err = rows.Scan(&boolResult)
-    check(err, "Error scanning result of check (" + query + "): ")
-    return boolResult
+    for rows.Next() {
+        var boolResult bool
+        err = rows.Scan(&boolResult)
+        check(err, "Error scanning result of check (" + query + "): ")
+        return boolResult
+    }
+    return false
 }
 
 /*********************************************
