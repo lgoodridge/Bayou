@@ -189,17 +189,14 @@ func NewBayouServer(id int, peers []*rpc.Client, commitDB *BayouDB,
 /* Formally "starts" a Bayou Server                  *
  * Starts inter-server communication and other tasks */
 func (server *BayouServer) Start() {
-
-    // Start Anti Entropy communication timer
     antiEntropyTimeout := getRandomTimeout(ANTI_ENTROPY_TIMEOUT_MIN)
     server.antiEntropyTimer = time.AfterFunc(antiEntropyTimeout, func() {
 
-        // If this replica isn't even alive, quit
+        // If this server isn't even active anymore, quit
         if !server.isActive {
             return
         }
 
-        // Reset the timer
         server.resetAntiEntropyTimer()
 
         // Choose server to send AntiEntropy RPC to
@@ -646,7 +643,8 @@ func (server *BayouServer) loadPersist() {
 //    gob.register(VectorClock)
     b, err := load(server.id)
     if err != nil {
-        debugf("Error : %s \n", err)
+        debugf("Server #%d: Error loading persistent database file: %s",
+                server.id, err)
         return
     }
     data.Write(b)

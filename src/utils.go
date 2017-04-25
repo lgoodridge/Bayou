@@ -14,7 +14,7 @@ import (
  ********************/
 
 /* Whether to display debug output */
-const DEBUG_MODE bool = false
+const DEBUG_MODE bool = true
 
 /* Maximum number of characters to use when *
  * printing a log entry's query string      */

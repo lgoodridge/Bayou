@@ -54,30 +54,82 @@ func getDB(filename string, reset bool) *BayouDB {
 
 /* Tests basic database functionality */
 func TestDBBasic(t *testing.T) {
-    // Open the Datapath
-    const dbpath = "foo.db"
+    // Open the Database
+    const dbpath = "david.db"
     db := getDB(dbpath, false)
     defer db.Close()
 
     // Create the DB table
     db.CreateTable()
 
-    err := db.ClaimRoom("Frist", 1, 1)
-    if err != "" {
-        Log.Println(err)
-    }
-    err = db.ClaimRoom("Friend", 4, 2)
-    if err != "" {
-        Log.Println(err)
-    }
+    name := "Fine"
+    id := 1
+    startDate := createDate(0, 0)
+    endDate := createDate(1, 5)
+    startTxt := startDate.Format("2006-01-02 03:04")
+    endTxt   := endDate.Format("2006-01-02 03:04")
 
-    // Read all items
-    readItems2 := db.ReadAllItems()
-    for _, item := range(readItems2) {
-        Log.Println(item.Name)
-        Log.Println(item.StartTime)
+    // Execute insertion query
+    query := fmt.Sprintf(`
+    INSERT OR REPLACE INTO rooms(
+        Id,
+        Name,
+        StartTime,
+        EndTime
+    ) values(%d, "%s", dateTime("%s"), dateTime("%s"))
+    `, id, name, startTxt, endTxt);
+    db.Execute(query)
+
+    // Execute read query
+    readQuery := `
+        SELECT Id, Name, StartTime, EndTime
+        FROM rooms
+        WHERE Id == 1
+    `
+    rows := (*sql.Rows)(db.Read(readQuery))
+
+    // Ensure read query returned a result
+    hasRow := rows.Next()
+    if !hasRow {
+        t.Fatal("Read query failed to return result rows.")
     }
+    ensureNoError(t, rows.Err(), "Error getting read query results.")
+
+    // Ensure results are as expected
+    item := Room{}
+    err := rows.Scan(&item.Id, &item.Name,
+            &item.StartTime, &item.EndTime)
+    ensureNoError(t, err, "Error scanning read query results.")
+
+    assertEqual(t, item.Name, name, "Item does not match inserted value.")
+    assertEqual(t, item.StartTime, startDate,
+            "Item does not match inserted value.")
+    assertEqual(t, item.EndTime, endDate,
+            "Item does not match inserted value.")
+
+    // Ensure there are no extra results
+    hasRow = rows.Next()
+    assert(t, !hasRow, "Read query returned more than one result.")
+
+    // Execute a dependency check query
+    check := fmt.Sprintf(`
+    SELECT CASE WHEN EXISTS (
+            SELECT *
+            FROM rooms
+            WHERE StartTime BETWEEN dateTime("%s") AND dateTime("%s")
+    )
+    THEN CAST(1 AS BIT)
+    ELSE CAST(0 AS BIT) END
+    `, startTxt, endTxt);
+    assert(t, db.Check(check), "Dependency check failed.")
+
+    // Execute a merge check query
+    merge := `
+    SELECT 0
+    `
+    assert(t, db.Check(merge), "Merge check failed.")
 }
+
 
 /*****************************
  *    VECTOR CLOCK TESTS     *
@@ -188,12 +240,13 @@ func cleanupDummyServers(listeners []net.Listener) {
 func TestServerRPC(t *testing.T) {
     numClients := 10
     port := 1111
+    otherPort := 1112
 
     ports := make([]int, numClients)
     for i := 0; i < numClients; i++ {
         ports[i] = port
     }
-    ports[1] = port + 1
+    ports[1] = otherPort
     clients := make([]*rpc.Client, len(ports))
 
     commitDB := getDB("test_commit.db", true)
@@ -206,7 +259,7 @@ func TestServerRPC(t *testing.T) {
     otherServerID := 1
     server := NewBayouServer(serverID, clients, commitDB,
             fullDB, ports[serverID])
-    NewBayouServer(otherServerID, clients, commitDB,
+    otherServer := NewBayouServer(otherServerID, clients, commitDB,
             fullDB, ports[otherServerID])
     setupClients(clients, ports)
     defer server.Kill()
@@ -242,6 +295,8 @@ func TestServerRPC(t *testing.T) {
     // Test inter-server RPC
     success := server.SendPing(otherServerID)
     assert(t, success, "Inter-server Ping RPC failed.")
+    success = otherServer.SendPing(serverID)
+    assert(t, success, "Inter-server Ping RPC failed.")
 }
 
 /* Tests server Read and Write functions */
@@ -276,6 +331,7 @@ func createNetwork(testName string, numClusters int) ([]*BayouServer,
         fullDB := getDB(testName + id + ".full.db", true)
         server := NewBayouServer(i, rpcClients, commitDB, fullDB, port + i)
         serverList[i] = server
+        clientList[i] = NewBayouClient(i, port + i)
         rpcClients[i] = startRPCClient(port + i)
         clientList[i] = &BayouClient{i, rpcClients[i]}
     }
@@ -319,67 +375,3 @@ func TestNetworkBasic(t *testing.T) {
 func TestNetworkPartition(t *testing.T) {
     Log.Println("Test not implemented.")
 }
-
-/* Tests that a Bayou network eventually reaches *
- * consistency in the face of network partitions */
-func TestDumbassShitForDavid(t *testing.T) {
-    // Open the Datapath
-    const dbpath = "david.db"
-    db := getDB(dbpath, false)
-    defer db.Close()
-
-    // Create the DB table
-    db.CreateTable()
-
-    name := "Fine"
-    id := "1"
-    startDate := createDate(0, 0)
-    endDate := createDate(1, 5)
-    startTxt := startDate.Format("2006-01-02 03:04")
-    endTxt   := endDate.Format("2006-01-02 03:04")
-    query := fmt.Sprintf(`
-    INSERT OR REPLACE INTO rooms(
-        Id,
-        Name,
-        StartTime,
-        EndTime
-    ) values(%s, "%s", dateTime("%s"), dateTime("%s"))
-    `, id, name, startTxt, endTxt);
-    fmt.Println(query)
-    db.Execute(query)
-    exec := `
-        SELECT Id, Name, StartTime, EndTime 
-        FROM rooms
-        WHERE Id == 1
-    `
-
-    rows := (*sql.Rows)(db.Read(exec))
-    for rows.Next() {
-        item := Room{}
-
-        err2 := rows.Scan(&item.Id, &item.Name,
-            &item.StartTime, &item.EndTime)
-        if err2 != nil { Log.Fatal(err2) }
-
-        fmt.Println(item.Name);
-        fmt.Println(item.StartTime);
-        fmt.Println(item.EndTime);
-    }
-
-    check := fmt.Sprintf(`
-    SELECT CASE WHEN EXISTS (
-            SELECT *
-            FROM rooms
-            WHERE StartTime BETWEEN dateTime("%s") AND dateTime("%s")
-    )
-    THEN CAST(1 AS BIT)
-    ELSE CAST(0 AS BIT) END
-    `, startTxt, endTxt);
-    fmt.Println(db.Check(check))
-
-    merge := `
-    SELECT 0
-    `
-    fmt.Println(db.Check(merge))
-}
-
