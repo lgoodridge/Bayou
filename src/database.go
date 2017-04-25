@@ -63,7 +63,8 @@ func (db *BayouDB) Execute(query string) {
  * database, and returns the result */
 func (db *BayouDB) Read(query string) *sql.Rows {
     rows, err := db.Query(query)
-    defer rows.Close()
+    // TODO: Make sure everyone ELSE closes the rows
+//    defer rows.Close()
     check(err, "Error executing read (" + query + "): ")
     return rows
 }

@@ -44,6 +44,31 @@ func (client *BayouClient) Kill() {
  * If onlyStable is true, tentative claims are not considered             */
 func (client *BayouClient) CheckRoom(name string, day int, hour int,
         onlyStable bool) Room {
+//    // Generate Dates
+//    startDate := createDate(day, hour)
+//    endDate := createDate(day, hour + 1)
+//    startTxt := startDate.Format("2006-01-02 03:04")
+//    endTxt   := endDate.Format("2006-01-02 03:04")
+//
+//    query := fmt.Sprintf(`
+//    SELECT Id, Name, StartTime, EndTime FROM rooms
+//    WHERE StartTime BETWEEN dateTime("%s") AND dateTime("%s")
+//    `, startTxt, startTxt);
+//    err, inter :=  client.sendReadRPC(query, false);
+//    check(err)
+//    rows := db.Rows(inter)
+//
+//    // Ensure read query returned a result
+//    hasRow := rows.Next()
+//    if !hasRow {
+//        t.Fatal("Read query failed to return result rows.")
+//    }
+//    ensureNoError(t, rows.Err(), "Error getting read query results.")
+//
+//    // Ensure results are as expected
+//    item := Room{}
+//    err := rows.Scan(&item.Id, &item.Name,
+//            &item.StartTime, &item.EndTime)
     return Room{}
 }
 
@@ -51,9 +76,9 @@ func (client *BayouClient) CheckRoom(name string, day int, hour int,
 func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
     // Generate Dates
     startDate := createDate(day, hour)
-    endDate := createDate(day, hour + 1)
-    startTxt := startDate.Format("2006-01-02 03:04")
-    endTxt   := endDate.Format("2006-01-02 03:04")
+    endDate   := createDate(day, hour + 1)
+    startTxt  := startDate.Format("2006-01-02 15:04")
+    endTxt    :=   endDate.Format("2006-01-02 15:04")
     id := "1"
 
     // Create Room

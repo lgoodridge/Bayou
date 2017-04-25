@@ -59,15 +59,12 @@ func TestDBBasic(t *testing.T) {
     db := getDB(dbpath, false)
     defer db.Close()
 
-    // Create the DB table
-    db.CreateTable()
-
     name := "Fine"
-    id := 1
+    id := "1"
     startDate := createDate(0, 0)
     endDate := createDate(1, 5)
-    startTxt := startDate.Format("2006-01-02 03:04")
-    endTxt   := endDate.Format("2006-01-02 03:04")
+    startTxt := startDate.Format("2006-01-02 15:04")
+    endTxt   := endDate.Format("2006-01-02 15:04")
 
     // Execute insertion query
     query := fmt.Sprintf(`
@@ -76,7 +73,7 @@ func TestDBBasic(t *testing.T) {
         Name,
         StartTime,
         EndTime
-    ) values(%d, "%s", dateTime("%s"), dateTime("%s"))
+    ) values(%s, "%s", dateTime("%s"), dateTime("%s"))
     `, id, name, startTxt, endTxt);
     db.Execute(query)
 
@@ -84,9 +81,10 @@ func TestDBBasic(t *testing.T) {
     readQuery := `
         SELECT Id, Name, StartTime, EndTime
         FROM rooms
-        WHERE Id == 1
+        WHERE Id == "1"
     `
     rows := (*sql.Rows)(db.Read(readQuery))
+    defer rows.Close()
 
     // Ensure read query returned a result
     hasRow := rows.Next()
@@ -101,11 +99,14 @@ func TestDBBasic(t *testing.T) {
             &item.StartTime, &item.EndTime)
     ensureNoError(t, err, "Error scanning read query results.")
 
-    assertEqual(t, item.Name, name, "Item does not match inserted value.")
-    assertEqual(t, item.StartTime, startDate,
-            "Item does not match inserted value.")
-    assertEqual(t, item.EndTime, endDate,
-            "Item does not match inserted value.")
+    assertEqual(t, item.Name, name, "Item Name does not match inserted value.")
+
+    fmt.Println(startDate)
+    fmt.Println(item.StartTime)
+    assert(t, item.StartTime.Equal(startDate),
+            "Item StartTime does not match inserted value.")
+    assert(t, item.EndTime.Equal(endDate),
+            "Item EndTime does not match inserted value.")
 
     // Ensure there are no extra results
     hasRow = rows.Next()
@@ -127,7 +128,7 @@ func TestDBBasic(t *testing.T) {
     merge := `
     SELECT 0
     `
-    assert(t, db.Check(merge), "Merge check failed.")
+    assert(t, !db.Check(merge), "Merge check failed.")
 }
 
 
