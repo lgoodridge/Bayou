@@ -1,18 +1,23 @@
 package bayou
 
 import (
+    "bytes"
+    "encoding/gob"
     "fmt"
     "net"
     "net/http"
     "net/rpc"
     "sync"
-    "encoding/gob"
-    "bytes"
+    "time"
 )
 
 /*****************
  *   CONSTANTS   *
  *****************/
+
+/* Minimum time (in ms) to wait     *
+ * between sending AntiEntropy RPCs */
+const ANTI_ENTROPY_TIMEOUT_MIN int = 150
 
 /************************
  *   TYPE DEFINITIONS   *
@@ -40,6 +45,9 @@ type BayouServer struct {
     commitClock    VectorClock
     // Timestamp of last tentative write
     tentativeClock VectorClock
+
+    // Inter-server Anti-Entropy timer
+    antiEntropyTimer *time.Timer
 
     // Various locks
     dbLock      *sync.Mutex
@@ -144,6 +152,7 @@ func NewBayouServer(id int, peers []*rpc.Client, commitDB *BayouDB,
     server.isActive = true
     server.commitClock = NewVectorClock(len(peers))
     server.tentativeClock = NewVectorClock(len(peers))
+    server.antiEntropyTimer = nil
     server.dbLock = &sync.Mutex{}
     server.logLock = &sync.Mutex{}
     server.persistLock = &sync.Mutex{}
@@ -177,10 +186,67 @@ func NewBayouServer(id int, peers []*rpc.Client, commitDB *BayouDB,
     return server
 }
 
-/* Formally "begins" a Bayou Server                  *
+/* Formally "starts" a Bayou Server                  *
  * Starts inter-server communication and other tasks */
-func (server *BayouServer) Begin() {
-    // TODO: Start Anti-Entropy communication
+func (server *BayouServer) Start() {
+
+    // Start Anti Entropy communication timer
+    antiEntropyTimeout := getRandomTimeout(ANTI_ENTROPY_TIMEOUT_MIN)
+    server.antiEntropyTimer = time.AfterFunc(antiEntropyTimeout, func() {
+
+        // If this replica isn't even alive, quit
+        if !server.isActive {
+            return
+        }
+
+        // Reset the timer
+        server.resetAntiEntropyTimer()
+
+        // Choose server to send AntiEntropy RPC to
+        targetID := server.id
+        for ; targetID != server.id; targetID = randomIntn(len(server.peers)){}
+
+        // Get the log entries to send to target server
+        omitTimestamp := server.Omitted[targetID]
+        commitStartIndex := getLengthAtTime(server.CommitLog, omitTimestamp)
+        commitSet := make([]LogEntry, len(server.CommitLog) - commitStartIndex)
+        copy(commitSet, server.CommitLog[commitStartIndex:])
+        tentativeSet := make([]LogEntry, len(server.TentativeLog))
+        copy(tentativeSet, server.TentativeLog)
+        undoSet := make([]LogEntry, len(server.UndoLog))
+        copy(undoSet, server.UndoLog)
+
+        antiEntropyArgs := AntiEntropyArgs{server.id, commitSet,
+                tentativeSet, undoSet, omitTimestamp}
+        var antiEntropyReply AntiEntropyReply
+
+        // Actually send AntiEntropy RPC
+        err := server.peers[targetID].Call("BayouServer.AntiEntropy",
+                &antiEntropyArgs, &antiEntropyReply)
+        if err != nil {
+            debugf("AntiEntropy %d => %d Failed: %s", server.id,
+                    targetID, err.Error())
+            return
+        }
+
+        // If AntiEntropy failed, set omit vector to the resolved timestamp
+        if !antiEntropyReply.Succeeded {
+            debugf("Server #%d: Omit timestamps mismatched. Setting to " +
+                    "resolved minimum: %s", server.id,
+                    antiEntropyReply.OmitTimestamp.String())
+            server.Omitted[targetID] = antiEntropyReply.OmitTimestamp
+            return
+        }
+
+        // Resolve logs according to reply, if necessary
+        if antiEntropyReply.MustUpdateLog {
+            server.matchLog(antiEntropyReply.CommitSet,
+                    antiEntropyReply.TentativeSet, antiEntropyReply.UndoSet,
+                    antiEntropyReply.OmitTimestamp)
+            server.Omitted[targetID] = antiEntropyReply.OmitTimestamp
+        }
+    })
+
     debugf("Server $%d begun", server.id)
 }
 
@@ -214,7 +280,7 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
         minOmitTimestamp = args.OmitTimestamp
     }
     if timestampsDiffer {
-        debugf("Omit timestamps for server %d and %d do not match!\n" +
+        debugf("Omit timestamps for servers %d and %d do not match!\n" +
                 "Receiver: %s\nSender: %s", server.id, args.SenderID,
                 myOmitTimestamp.String(), args.OmitTimestamp.String())
         reply.Succeeded = false
@@ -539,6 +605,12 @@ func (server *BayouServer) updateClocks() {
     if lastTentativeIdx >= 0 {
         server.tentativeClock = server.TentativeLog[lastTentativeIdx].Timestamp
     }
+}
+
+/* Resets server Anti-Entropy timer with a new duration */
+func (server *BayouServer) resetAntiEntropyTimer() {
+    if !server.antiEntropyTimer.Stop() {}
+    server.antiEntropyTimer.Reset(getRandomTimeout(ANTI_ENTROPY_TIMEOUT_MIN))
 }
 
 /* Saves server data to stable storage */

@@ -75,6 +75,22 @@ func randomInt() int {
     return random.Int()
 }
 
+/* Returns a random integer less than max */
+func randomIntn(max int) int {
+    return random.Intn(max)
+}
+
+/************************
+ *    TIME UTILITIES    *
+ ************************/
+
+/* Returns a new timeout duration between *
+ * minDuration to 2*minDuration ms long   */
+func getRandomTimeout(minDuration int) time.Duration {
+    millis := minDuration + randomIntn(minDuration)
+    return time.Duration(millis) * time.Millisecond
+}
+
 /******************************
  *    BAYOU LOG UTILITIES     *
  ******************************/

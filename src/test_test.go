@@ -199,8 +199,6 @@ func TestServerRPC(t *testing.T) {
     defer commitDB.Close()
     defer fullDB.Close()
 
-    Log.Println("1")
-
     // Start up Bayou servers and RPC clients
     serverID := 0
     otherServerID := 1
@@ -285,7 +283,7 @@ func createNetwork(testName string, numClusters int) ([]*BayouServer,
 /* Starts inter-server communication on the provided network */
 func startNetwork(servers []*BayouServer) {
     for _, server := range servers {
-        server.Begin()
+        server.Start()
     }
 }
 

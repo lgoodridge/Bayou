@@ -14,14 +14,14 @@ Reimplementation of Bayou for COS 518 project.
 
 # Lance
 
-* Server Start and Kill methods
-* Change server RPCs to use strings instead
+* Write rest of the server unit tests
 
 # Done
 
 * Get MySQL working
 * Get RPC working
 * Get Logical clock working
+* Write server Start and Kill methods
 * Write server AntiEntropy RPC Handler
 * Write server Read RPC handler
 * Write server Write RPC handler
