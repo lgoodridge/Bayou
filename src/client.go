@@ -111,6 +111,7 @@ func (client *BayouClient) sendReadRPC(readQuery string,
     if err != nil {
         data = readReply.Data
     } else {
+        debugf("Client #%d Read RPC Failed: " + err.Error(), client.id)
         data = nil
     }
     return
@@ -132,6 +133,7 @@ func (client *BayouClient) sendWriteRPC(writeQuery string, undoQuery string,
         hasConflict = writeReply.HasConflict
         wasResolved = writeReply.WasResolved
     } else {
+        debugf("Client #%d Write RPC Failed: " + err.Error(), client.id)
         hasConflict = false
         wasResolved = false
     }

@@ -372,6 +372,28 @@ func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) error {
     return nil
 }
 
+/* Sends a Ping RPC to another server, and returns *
+ * whether a proper acknowledgment was received    */
+func (server *BayouServer) SendPing(peerID int) bool {
+    pingArgs := PingArgs{server.id}
+    var pingReply PingReply
+
+    // Ensure RPC went through
+    err := server.peers[peerID].Call("BayouServer.Ping", &pingArgs, &pingReply)
+    if err != nil {
+        debugf("Ping %d => %d Failed: %s", server.id, peerID, err.Error())
+        return false
+    }
+
+    // Ensure Alive bit was set
+    if !pingReply.Alive {
+        debugf("Ping %d => %d Failed to set Alive bit", server.id, peerID)
+        return false
+    }
+
+    return true
+}
+
 /* Starts serving RPCs on the provided port */
 func (server *BayouServer) startRPCServer(port int) {
     rpcServer := rpc.NewServer()

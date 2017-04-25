@@ -191,6 +191,7 @@ func TestServerRPC(t *testing.T) {
     for i := 0; i < numClients; i++ {
         ports[i] = port
     }
+    ports[1] = port + 1
     clients := make([]*rpc.Client, len(ports))
 
     commitDB := getDB("test_commit.db", true)
@@ -198,10 +199,15 @@ func TestServerRPC(t *testing.T) {
     defer commitDB.Close()
     defer fullDB.Close()
 
-    // Start up Bayou server and RPC clients
+    Log.Println("1")
+
+    // Start up Bayou servers and RPC clients
     serverID := 0
+    otherServerID := 1
     server := NewBayouServer(serverID, clients, commitDB,
             fullDB, ports[serverID])
+    NewBayouServer(otherServerID, clients, commitDB,
+            fullDB, ports[otherServerID])
     setupClients(clients, ports)
     defer server.Kill()
     defer cleanupClients(clients)
@@ -232,6 +238,10 @@ func TestServerRPC(t *testing.T) {
         } (i)
     }
     wg.Wait()
+
+    // Test inter-server RPC
+    success := server.SendPing(otherServerID)
+    assert(t, success, "Inter-server Ping RPC failed.")
 }
 
 /* Tests server Read and Write functions */
