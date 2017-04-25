@@ -27,7 +27,10 @@ func InitDB(filepath string) *BayouDB {
     sqlDB, err := sql.Open("sqlite3", filepath)
     if err != nil { Log.Fatal(err) }
     if sqlDB == nil { Log.Fatal("db nil") }
-    return &BayouDB{sqlDB}
+    db := &BayouDB{sqlDB}
+    // TODO: Should probably move this
+    db.CreateTable()
+    return db;
 }
 
 /*
@@ -60,6 +63,7 @@ func (db *BayouDB) Execute(query string) {
  * database, and returns the result */
 func (db *BayouDB) Read(query string) *sql.Rows {
     rows, err := db.Query(query)
+    defer rows.Close()
     check(err, "Error executing read (" + query + "): ")
     return rows
 }
@@ -69,6 +73,7 @@ func (db *BayouDB) Read(query string) *sql.Rows {
  * and returns the (boolean) result        */
 func (db *BayouDB) Check(query string) bool {
     rows, err := db.Query(query)
+    defer rows.Close()
     check(err, "Error executing check (" + query + "): ")
     for rows.Next() {
         var boolResult bool

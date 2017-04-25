@@ -304,9 +304,8 @@ func TestClient(t *testing.T) {
     servers, clients := createNetwork("TestWrite", 1)
     defer removeNetwork(servers, clients)
 
-    // TODO: Must fix
     // Test non-conflicting write
-    // clients[0].ClaimRoom("Frist", 1, 1)
+    clients[0].ClaimRoom("Frist", 1, 1)
 }
 
 /* Tests that a Bayou network     *
