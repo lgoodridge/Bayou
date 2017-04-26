@@ -84,11 +84,20 @@ func randomIntn(max int) int {
  *    TIME UTILITIES    *
  ************************/
 
+/* Format string to use when converting times to strings */
+const TIME_FORMAT_STR = "2006-01-02 15:04"
+
 /* Returns a new timeout duration between *
  * minDuration to 2*minDuration ms long   */
 func getRandomTimeout(minDuration int) time.Duration {
     millis := minDuration + randomIntn(minDuration)
     return time.Duration(millis) * time.Millisecond
+}
+
+/* Returns whether the provided times are equal      *
+ * according to precision specified by format string */
+func timesEqual(time1 time.Time, time2 time.Time) bool {
+    return time1.Format(TIME_FORMAT_STR) == time2.Format(TIME_FORMAT_STR)
 }
 
 /******************************
@@ -121,5 +130,29 @@ func (entry LogEntry) String() string {
         queryStr = queryStr[:MAX_QUERY_CHARS] + "..."
     }
     return fmt.Sprintf("#%d: ", entry.WriteID) + entry.Query
+}
+
+/***************************
+ *    CLIENT UTILITIES     *
+ ***************************/
+
+/* Deserializes the result of a BayouDB read *
+ * into a slice of client Room structs       */
+func deserializeRooms(rr ReadResult) []Room {
+    rooms := make([]Room, len(rr))
+    for i, rowData := range rr {
+        room := Room{}
+        room.Id = string(rowData["Id"].([]byte))
+        room.Name = string(rowData["Name"].([]byte))
+        room.StartTime = rowData["StartTime"].(time.Time)
+        room.EndTime = rowData["EndTime"].(time.Time)
+        rooms[i] = room
+    }
+    return rooms
+}
+
+func (room Room) String() string {
+    return fmt.Sprintf("Room: #%s, %s, %s, %s", room.Id, room.Name,
+            room.StartTime, room.EndTime)
 }
 

@@ -8,8 +8,6 @@ import (
     "path/filepath"
     "sync"
     "testing"
-    "database/sql"
-    _ "github.com/mattn/go-sqlite3"
 )
 
 /*************************
@@ -52,10 +50,22 @@ func getDB(filename string, reset bool) *BayouDB {
     return InitDB(dbFilepath)
 }
 
+/* Fails provided test if rooms are not equal */
+func assertRoomsEqual(t *testing.T, room Room, exp Room) {
+    failMsg := "Expected Room: " + exp.String() +
+            "\tReceived: " + room.String()
+    if (room.Id != exp.Id) ||
+       (room.Name != exp.Name) ||
+       !timesEqual(room.StartTime, exp.StartTime) ||
+       !timesEqual(room.EndTime, exp.EndTime) {
+        t.Fatal(failMsg)
+    }
+}
+
 /* Tests basic database functionality */
 func TestDBBasic(t *testing.T) {
     // Open the Database
-    const dbpath = "david.db"
+    const dbpath = "dbbasic.db"
     db := getDB(dbpath, false)
     defer db.Close()
 
@@ -83,34 +93,12 @@ func TestDBBasic(t *testing.T) {
         FROM rooms
         WHERE Id == "1"
     `
-    rows := (*sql.Rows)(db.Read(readQuery))
-    defer rows.Close()
-
-    // Ensure read query returned a result
-    hasRow := rows.Next()
-    if !hasRow {
-        t.Fatal("Read query failed to return result rows.")
-    }
-    ensureNoError(t, rows.Err(), "Error getting read query results.")
+    result := db.Read(readQuery)
 
     // Ensure results are as expected
-    item := Room{}
-    err := rows.Scan(&item.Id, &item.Name,
-            &item.StartTime, &item.EndTime)
-    ensureNoError(t, err, "Error scanning read query results.")
-
-    assertEqual(t, item.Name, name, "Item Name does not match inserted value.")
-
-    fmt.Println(startDate)
-    fmt.Println(item.StartTime)
-    assert(t, item.StartTime.Equal(startDate),
-            "Item StartTime does not match inserted value.")
-    assert(t, item.EndTime.Equal(endDate),
-            "Item EndTime does not match inserted value.")
-
-    // Ensure there are no extra results
-    hasRow = rows.Next()
-    assert(t, !hasRow, "Read query returned more than one result.")
+    rooms := deserializeRooms(result)
+    assertEqual(t, len(rooms), 1, "Read query returned wrong number of rooms.")
+    assertRoomsEqual(t, rooms[0], Room{id, name, startDate, endDate})
 
     // Execute a dependency check query
     check := fmt.Sprintf(`
@@ -137,7 +125,7 @@ func TestDBBasic(t *testing.T) {
  *****************************/
 
 /* Fails provided test if VCs are not equal */
-func assertVCEqual(t *testing.T, vc VectorClock, exp VectorClock) {
+func assertVCsEqual(t *testing.T, vc VectorClock, exp VectorClock) {
     failMsg := "Expected VC: " + exp.String() + "\tReceived: " + vc.String()
     if len(vc) != len(exp) {
         t.Fatal(failMsg)
@@ -152,13 +140,13 @@ func assertVCEqual(t *testing.T, vc VectorClock, exp VectorClock) {
 /* Unit tests vector clock */
 func TestVectorClock(t *testing.T) {
     vc := NewVectorClock(4)
-    assertVCEqual(t, vc, VectorClock{0, 0, 0, 0})
+    assertVCsEqual(t, vc, VectorClock{0, 0, 0, 0})
 
     // Ensure Inc works as expected
     vc.Inc(1)
     vc.Inc(3)
     vc.Inc(3)
-    assertVCEqual(t, vc, VectorClock{0, 1, 0, 2})
+    assertVCsEqual(t, vc, VectorClock{0, 1, 0, 2})
 
     // Ensure Set works as expected
     err := vc.SetTime(0, 6)
@@ -167,7 +155,7 @@ func TestVectorClock(t *testing.T) {
     ensureNoError(t, err, "SetTime returned an error: ")
     err = vc.SetTime(2, 0)
     ensureNoError(t, err, "SetTime returned an error: ")
-    assertVCEqual(t, vc, VectorClock{6, 4, 0, 2})
+    assertVCsEqual(t, vc, VectorClock{6, 4, 0, 2})
 
     // Ensure Set returns error when trying to
     // set time less than what is already stored
@@ -175,7 +163,7 @@ func TestVectorClock(t *testing.T) {
     if err == nil {
         t.Fatal("SetTime did not return an error when rewinding time.")
     }
-    assertVCEqual(t, vc, VectorClock{6, 4, 0, 2})
+    assertVCsEqual(t, vc, VectorClock{6, 4, 0, 2})
 
     // Ensure LessThan works as expected
     wrongSize := VectorClock{0, 0, 0}
@@ -192,9 +180,9 @@ func TestVectorClock(t *testing.T) {
     // Ensure Max works as expected
     other := VectorClock{5, 5, 2, 2}
     vc.Max(other)
-    assertVCEqual(t, vc, VectorClock{6, 5, 2, 2})
+    assertVCsEqual(t, vc, VectorClock{6, 5, 2, 2})
     // Ensure other wasn't affected
-    assertVCEqual(t, other, VectorClock{5, 5, 2, 2})
+    assertVCsEqual(t, other, VectorClock{5, 5, 2, 2})
 }
 
 /*****************************
@@ -332,7 +320,6 @@ func createNetwork(testName string, numClusters int) ([]*BayouServer,
         fullDB := getDB(testName + id + ".full.db", true)
         server := NewBayouServer(i, rpcClients, commitDB, fullDB, port + i)
         serverList[i] = server
-        clientList[i] = NewBayouClient(i, port + i)
         rpcClients[i] = startRPCClient(port + i)
         clientList[i] = &BayouClient{i, rpcClients[i]}
     }
@@ -363,6 +350,8 @@ func TestClient(t *testing.T) {
 
     // Test non-conflicting write
     clients[0].ClaimRoom("Frist", 1, 1)
+
+    // TODO: Check something?
 }
 
 /* Tests that a Bayou network     *

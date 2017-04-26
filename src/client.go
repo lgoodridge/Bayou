@@ -4,6 +4,7 @@ import (
     "fmt"
     "net/rpc"
     "strconv"
+    "time"
 )
 
 /************************
@@ -14,6 +15,14 @@ import (
 type BayouClient struct {
     id     int
     server *rpc.Client
+}
+
+/* Represents a room in the scheduling app */
+type Room struct {
+    Id          string
+    Name        string
+    StartTime   time.Time
+    EndTime     time.Time
 }
 
 /****************************
@@ -115,7 +124,6 @@ func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
     WHERE Id = %d
     `, id);
 
-
     _, hasConflict, wasResolved := client.sendWriteRPC(query,
             undo, check, merge)
     debugf("hasConflict %v\n", hasConflict)
@@ -130,7 +138,7 @@ func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
  * Returns an error if the RPC fails, and     *
  * the result of the read query if successful */
 func (client *BayouClient) sendReadRPC(readQuery string,
-        fromCommit bool) (err error, data interface{}) {
+        fromCommit bool) (err error, data ReadResult) {
     readArgs := &ReadArgs{readQuery, fromCommit}
     var readReply ReadReply
 

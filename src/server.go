@@ -116,7 +116,7 @@ type ReadArgs struct {
 
 /* Bayou Read RPC reply structure */
 type ReadReply struct {
-    Data interface{}
+    Data ReadResult
 }
 
 /* Bayou Write RPC arguments structure */
@@ -613,7 +613,6 @@ func (server *BayouServer) resetAntiEntropyTimer() {
 /* Saves server data to stable storage */
 func (server *BayouServer) savePersist() {
     var data bytes.Buffer
-//    gob.register(VectorClock)
     enc := gob.NewEncoder(&data)
 
     err := enc.Encode(server.IsPrimary)
@@ -631,6 +630,7 @@ func (server *BayouServer) savePersist() {
     err = enc.Encode(server.ErrorLog)
     check(err, "Error encoding: ")
 
+    // Save data to persistent file
     save(data.Bytes(), server.id)
 }
 
@@ -638,9 +638,8 @@ func (server *BayouServer) savePersist() {
 func (server *BayouServer) loadPersist() {
     var data bytes.Buffer
     var b  []byte
-// TODO: It is likely that each sub group needs
-//       to be registered in order to gob correctly
-//    gob.register(VectorClock)
+
+    // Load the data from persistent file as byte array
     b, err := load(server.id)
     if err != nil {
         debugf("Server #%d: Error loading persistent database file: %s",
