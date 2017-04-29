@@ -3,6 +3,7 @@ package bayou
 import (
     "bytes"
     "encoding/gob"
+    "errors"
     "fmt"
     "net"
     "net/http"
@@ -259,6 +260,10 @@ func (server *BayouServer) Kill() {
  * log and return the agreed upon result log  */
 func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
         reply *AntiEntropyReply) error {
+    if !server.isActive {
+        return errors.New(fmt.Sprintf("Server #%d is not active", server.id))
+    }
+
     var useMyLog bool
     var otherCommitClock VectorClock
     var otherTentativeClock VectorClock
@@ -366,6 +371,9 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
  * Test RPC for determining server connectivity *
  * Sets Alive to yes is RPC was received        */
 func (server *BayouServer) Ping(args *PingArgs, reply *PingReply) error {
+    if !server.isActive {
+        return errors.New(fmt.Sprintf("Server #%d is not active", server.id))
+    }
     debugf("Server #%d received ping from %d", server.id, args.SenderID)
     reply.Alive = true
     return nil
@@ -375,6 +383,10 @@ func (server *BayouServer) Ping(args *PingArgs, reply *PingReply) error {
  * Returns result of the user-defined read query *
  * on either the committed or full database      */
 func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) error {
+    if !server.isActive {
+        return errors.New(fmt.Sprintf("Server #%d is not active", server.id))
+    }
+
     server.dbLock.Lock()
     defer server.dbLock.Unlock()
 
@@ -394,6 +406,10 @@ func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) error {
  * Returns whether the write had a conflict, and *
  * if so, whether it was successfully resolved   */
 func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) error {
+    if !server.isActive {
+        return errors.New(fmt.Sprintf("Server #%d is not active", server.id))
+    }
+
     // Update appropiate vector clock(s)
     server.tentativeClock.Inc(server.id)
     writeClock := server.tentativeClock
@@ -642,8 +658,10 @@ func (server *BayouServer) loadPersist() {
     // Load the data from persistent file as byte array
     b, err := load(server.id)
     if err != nil {
-        debugf("Server #%d: Error loading persistent database file: %s",
-                server.id, err)
+        if err.Error() != FILE_NOT_FOUND_ERROR {
+            debugf("Server #%d: Error loading persistent database file: %s",
+                    server.id, err)
+        }
         return
     }
     data.Write(b)

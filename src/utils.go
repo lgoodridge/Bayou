@@ -31,6 +31,16 @@ func check(e error, prefix string) {
     }
 }
 
+/*************************
+ *    FILE UTILITIES     *
+ *************************/
+
+/* Returns whether a file exists at the provided path */
+func fileExists(filePath string) bool {
+    _, err := os.Stat(filePath)
+    return err == nil
+}
+
 /****************************
  *    LOGGING UTILITIES     *
  ****************************/

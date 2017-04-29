@@ -3,7 +3,6 @@ package bayou
 import (
     "fmt"
     "net/rpc"
-    "strconv"
     "time"
 )
 
@@ -29,15 +28,10 @@ type Room struct {
  *   BAYOU CLIENT METHODS   *
  ****************************/
 
-/* Returns a new Bayou Client                  *
- * Connects to its server on the provided port */
-func NewBayouClient(id int, port int) *BayouClient {
-    // Connect to the server
-    rpcClient, err := rpc.DialHTTP("tcp", "localhost:"+strconv.Itoa(port))
-    if err != nil {
-        Log.Fatal("Failed to connect to server: ", err)
-    }
-
+/* Returns a new Bayou Client            *
+ * Provided RPC client should already be *
+ * connected to this client's server    */
+func NewBayouClient(id int, rpcClient *rpc.Client) *BayouClient {
     client := &BayouClient{id, rpcClient}
     return client
 }

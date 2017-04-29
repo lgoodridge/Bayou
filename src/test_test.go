@@ -2,7 +2,6 @@ package bayou
 
 import (
     "fmt"
-    "net"
     "net/rpc"
     "os"
     "path/filepath"
@@ -189,40 +188,46 @@ func TestVectorClock(t *testing.T) {
  *    BAYOU SERVER TESTS     *
  *****************************/
 
-/* Sets up an array of RPC clients, each listening *
- * to one of the ports in the provided ports array */
-func setupClients(clients []*rpc.Client, ports []int) {
-    if len(clients) != len(ports) {
-        Log.Fatal("Test Error: Length of client and port arrays do not match.")
+/* Kills each of the provided servers */
+func cleanupServers(servers []*BayouServer) {
+    for _, server := range servers {
+        server.Kill()
+        server.commitDB.Close()
+        server.fullDB.Close()
+        DeletePersist(server.id)
     }
-    for idx, port := range ports {
-        clients[idx] = startRPCClient(port)
-    }
-}
-
-/* Sets up an array of Dummy WC RPC servers, each    *
- * serving on one of the ports in the provided array *
- * Returns an array of listeners for clean up        */
-func setupDummyServers(ports []int) []net.Listener {
-    listeners := make([]net.Listener, len(ports))
-    for idx, port := range ports {
-        listeners[idx] = startWCServer(port)
-    }
-    return listeners
 }
 
 /* Closes each of the provided RPC clients */
-func cleanupClients(clients []*rpc.Client) {
+func cleanupRPCClients(clients []*rpc.Client) {
     for _, client := range clients {
         client.Close()
     }
 }
 
-/* Closes each of the provided dummy servers */
-func cleanupDummyServers(listeners []net.Listener) {
-    for _, listener := range listeners {
-        listener.Close()
+/* Creates a network of Bayou servers and RPC clients *
+ * A server is started for each provided server port,  *
+ * and a an RPC client for each provided client port   */
+func createNetwork(testName string, serverPorts []int,
+        clientPorts []int) ([]*BayouServer, []*rpc.Client) {
+    serverList := make([]*BayouServer, len(serverPorts))
+    rpcClients := make([]*rpc.Client, len(clientPorts))
+    for i, port := range serverPorts {
+        id := fmt.Sprintf("%d", i)
+        commitDB := getDB(testName + "_" + id + "_commit.db", true)
+        fullDB := getDB(testName + "_" + id + "_commit.db", true)
+        serverList[i] = NewBayouServer(i, rpcClients, commitDB, fullDB, port)
     }
+    for i, port := range clientPorts {
+        rpcClients[i] = startRPCClient(port)
+    }
+    return serverList, rpcClients
+}
+
+/* Shuts down and cleans up the provided network */
+func removeNetwork(servers []*BayouServer, clients []*rpc.Client) {
+    cleanupRPCClients(clients)
+    cleanupServers(servers)
 }
 
 /* Tests server RPC functionality */
@@ -231,33 +236,24 @@ func TestServerRPC(t *testing.T) {
     port := 1111
     otherPort := 1112
 
-    ports := make([]int, numClients)
+    serverPorts := []int{port, otherPort}
+    clientPorts := make([]int, numClients)
     for i := 0; i < numClients; i++ {
-        ports[i] = port
+        clientPorts[i] = port
     }
-    ports[1] = otherPort
-    clients := make([]*rpc.Client, len(ports))
+    clientPorts[1] = otherPort
 
-    commitDB := getDB("test_commit.db", true)
-    fullDB := getDB("test_full.db", true)
-    defer commitDB.Close()
-    defer fullDB.Close()
+    servers, clients := createNetwork("test_rpc", serverPorts, clientPorts)
+    defer cleanupRPCClients(clients)
 
-    // Start up Bayou servers and RPC clients
-    serverID := 0
-    otherServerID := 1
-    server := NewBayouServer(serverID, clients, commitDB,
-            fullDB, ports[serverID])
-    otherServer := NewBayouServer(otherServerID, clients, commitDB,
-            fullDB, ports[otherServerID])
-    setupClients(clients, ports)
+    server := servers[0]
+    otherServer := servers[1]
     defer server.Kill()
-    defer cleanupClients(clients)
 
     // Test a single RPC
     pingArgs := &PingArgs{2}
     var pingReply PingReply
-    err := clients[serverID].Call("BayouServer.Ping", pingArgs, &pingReply)
+    err := clients[server.id].Call("BayouServer.Ping", pingArgs, &pingReply)
     ensureNoError(t, err, "Single Ping RPC failed: ")
     assert(t, pingReply.Alive, "Single Ping RPC failed.")
 
@@ -282,10 +278,15 @@ func TestServerRPC(t *testing.T) {
     wg.Wait()
 
     // Test inter-server RPC
-    success := server.SendPing(otherServerID)
+    success := server.SendPing(otherServer.id)
     assert(t, success, "Inter-server Ping RPC failed.")
-    success = otherServer.SendPing(serverID)
+    success = otherServer.SendPing(server.id)
     assert(t, success, "Inter-server Ping RPC failed.")
+
+    // Ensure RPC to Killed server fails
+    otherServer.Kill()
+    success = server.SendPing(otherServer.id)
+    assert(t, !success, "Ping to Killed server suceeded.")
 }
 
 /* Tests server Read and Write functions */
@@ -308,45 +309,39 @@ func TestServerPersist(t *testing.T) {
  ******************************/
 
 /* Creates a network of Bayou Server-Client clusters */
-func createNetwork(testName string, numClusters int) ([]*BayouServer,
+func createBayouNetwork(testName string, numClusters int) ([]*BayouServer,
         []*BayouClient) {
-    serverList := make([]*BayouServer, numClusters)
-    clientList := make([]*BayouClient, numClusters)
-    rpcClients := make([]*rpc.Client, numClusters)
-    port := 1111
+    ports := make([]int, numClusters)
     for i := 0; i < numClusters; i++ {
-        id := fmt.Sprintf("%d", i)
-        commitDB := getDB(testName + id + ".commit.db", true)
-        fullDB := getDB(testName + id + ".full.db", true)
-        server := NewBayouServer(i, rpcClients, commitDB, fullDB, port + i)
-        serverList[i] = server
-        rpcClients[i] = startRPCClient(port + i)
-        clientList[i] = &BayouClient{i, rpcClients[i]}
+        ports[i] = 1111 + i
+    }
+    clientList := make([]*BayouClient, numClusters)
+    serverList, rpcClients := createNetwork(testName, ports, ports)
+    for i, rpcClient := range rpcClients {
+        clientList[i] = NewBayouClient(i, rpcClient)
     }
     return serverList, clientList
 }
 
+/* Shuts down and cleans up the provided network */
+func removeBayouNetwork(servers []*BayouServer, clients []*BayouClient) {
+    for _, client := range clients {
+        client.Kill()
+    }
+    cleanupServers(servers)
+}
+
 /* Starts inter-server communication on the provided network */
-func startNetwork(servers []*BayouServer) {
+func startBayouNetworkComm(servers []*BayouServer) {
     for _, server := range servers {
         server.Start()
     }
 }
 
-/* Shuts down and cleans up the provided network */
-func removeNetwork(servers []*BayouServer, clients []*BayouClient) {
-    for _, client := range clients {
-        client.Kill()
-    }
-    for _, server := range servers {
-        server.Kill()
-    }
-}
-
 /* Tests client functionality */
 func TestClient(t *testing.T) {
-    servers, clients := createNetwork("TestWrite", 1)
-    defer removeNetwork(servers, clients)
+    servers, clients := createBayouNetwork("test_client", 1)
+    defer removeBayouNetwork(servers, clients)
 
     // Test non-conflicting write
     clients[0].ClaimRoom("Frist", 1, 1)
