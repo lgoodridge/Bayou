@@ -257,7 +257,7 @@ func (server *BayouServer) Kill() {
 
 /* Anti-Entropy RPC Handler                   *
  * Resolve this server's log and the provided *
- * log and return the agreed upon result log  */
+ * log and reply the agreed upon result log   */
 func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
         reply *AntiEntropyReply) error {
     if !server.isActive {
@@ -380,7 +380,7 @@ func (server *BayouServer) Ping(args *PingArgs, reply *PingReply) error {
 }
 
 /* Bayou Read RPC Handler                        *
- * Returns result of the user-defined read query *
+ * Replies result of the user-defined read query *
  * on either the committed or full database      */
 func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) error {
     if !server.isActive {
@@ -403,7 +403,7 @@ func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) error {
 }
 
 /* Bayou Write RPC Handler                       *
- * Returns whether the write had a conflict, and *
+ * Replies whether the write had a conflict, and *
  * if so, whether it was successfully resolved   */
 func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) error {
     if !server.isActive {

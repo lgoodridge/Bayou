@@ -134,6 +134,26 @@ func logToString(log []LogEntry) string {
     return logStr
 }
 
+/* Returns whether two log entries have the same content *
+ * Also checks timestamp equality if checkTime is true   */
+func entriesAreEqual(entry1 LogEntry, entry2 LogEntry, checkTime bool) bool {
+    contentEqual := (entry1.WriteID == entry2.WriteID) &&
+            (entry1.Query == entry2.Query) &&
+            (entry1.Check == entry2.Check) &&
+            (entry1.Merge == entry2.Merge)
+    if checkTime && contentEqual {
+        if len(entry1.Timestamp) != len(entry2.Timestamp) {
+            return false
+        }
+        for idx, _ := range entry1.Timestamp {
+            if entry1.Timestamp[idx] != entry2.Timestamp[idx] {
+                return false
+            }
+        }
+    }
+    return contentEqual
+}
+
 func (entry LogEntry) String() string {
     queryStr := entry.Query
     if len(queryStr) > MAX_QUERY_CHARS {
@@ -159,6 +179,14 @@ func deserializeRooms(rr ReadResult) []Room {
         rooms[i] = room
     }
     return rooms
+}
+
+/* Returns whether two Rooms have identical content */
+func roomsAreEqual(room1 Room, room2 Room) bool {
+    return (room1.Id == room2.Id) &&
+            (room1.Name == room2.Name) &&
+            (timesEqual(room1.StartTime, room2.StartTime)) &&
+            (timesEqual(room1.StartTime, room2.EndTime))
 }
 
 func (room Room) String() string {

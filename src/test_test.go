@@ -15,14 +15,14 @@ import (
 
 /* Fails provided test if condition is not true */
 func assert(t *testing.T, cond bool, message string) {
-    assertEqual(t, cond, true, message)
+    if !cond {
+        t.Fatal(message)
+    }
 }
 
 /* Fails provided test if a and b are not equal */
 func assertEqual(t *testing.T, a interface{}, b interface{}, message string) {
-    if a != b {
-        t.Fatal(message)
-    }
+    assert(t, a == b, message)
 }
 
 /* Fails provided test if err is not nil */
@@ -187,6 +187,67 @@ func TestVectorClock(t *testing.T) {
 /*****************************
  *    BAYOU SERVER TESTS     *
  *****************************/
+
+/* Fails provided test if Bayou Logs do not have equal content *
+ * Ensures order of entries are the same is checkOrder is true */
+func assertLogsEqual(t *testing.T, log []LogEntry, exp []LogEntry,
+        checkOrder bool) {
+    failMsg := "Expected Log: " + logToString(exp) + "\nReceived: " +
+            logToString(log)
+    assertEqual(t, len(log), len(exp), failMsg)
+    if checkOrder {
+        for idx, _ := range log {
+            assert(t, entriesAreEqual(log[idx], exp[idx], true), failMsg)
+        }
+    } else {
+        logCopy := make([]LogEntry, len(log))
+        copy(logCopy, log)
+        for _, expEntry := range exp {
+            for idx, logEntry := range logCopy {
+                if entriesAreEqual(expEntry, logEntry, false) {
+                    logCopy = append(log[:idx], log[idx+1:]...)
+                    break
+                }
+            }
+            t.Fatal(failMsg)
+        }
+    }
+}
+
+/* Fails provided test if provided *
+ * Room lists are not identical    */
+func assertRoomListsEqual(t *testing.T, rooms []Room, exp []Room,
+        prefix string) {
+    roomStr := ""
+    expStr := ""
+    for _, entry := range rooms {
+        roomStr = roomStr + entry.String() + "\n"
+    }
+    for _, entry := range exp {
+        expStr = expStr + entry.String() + "\n"
+    }
+    failMsg := prefix + ":\n\nExepected Rooms:\n" + expStr +
+            "\nReceived: " + roomStr
+
+    assertEqual(t, len(rooms), len(exp), failMsg)
+    for idx, _ := range rooms {
+        assert(t, roomsAreEqual(rooms[idx], exp[idx]), failMsg)
+    }
+}
+
+/* Fails provided test if database contents *
+ * do not match the provided Room list      */
+func assertDBContentsEqual(t *testing.T, db *BayouDB, exp []Room) {
+    readQuery := `
+        SELECT Id, Name, StartTime, EndTime
+        FROM rooms
+        ORDER BY Id
+    `
+    result := db.Read(readQuery)
+    rooms := deserializeRooms(result)
+    assertRoomListsEqual(t, rooms, exp, "Database does not contain " +
+        "expected contents")
+}
 
 /* Kills each of the provided servers */
 func cleanupServers(servers []*BayouServer) {
