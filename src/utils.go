@@ -166,6 +166,60 @@ func (entry LogEntry) String() string {
  *    CLIENT UTILITIES     *
  ***************************/
 
+/* Returns a query string that inserts a room   *
+ * into the database wwith provided information */
+func getInsertQuery(room Room) string {
+    return fmt.Sprintf(`
+        INSERT OR REPLACE INTO rooms(
+            Id,
+            Name,
+            StartTime,
+            EndTime
+        ) values(%s, "%s", dateTime("%s"), dateTime("%s"))
+    `, room.Id, room.Name, room.StartTime.Format(TIME_FORMAT_STR),
+            room.EndTime.Format(TIME_FORMAT_STR))
+}
+
+/* Returns a query string that deletes a room *
+ * with the specified id from the database    */
+func getDeleteQuery(id string) string {
+    return fmt.Sprintf(`
+        DELETE FROM rooms
+        WHERE Id = %s
+    `, id)
+}
+
+/* Returns a query string that retrieves the    *
+ * room with the specified id from the database */
+func getReadQuery(id string) string {
+    return fmt.Sprintf(`
+        SELECT Id, Name, StartTime, EndTime
+        FROM rooms
+        WHERE Id == "%s"
+    `, id)
+}
+
+/* Returns a query string that retrieves *
+ * all the rooms the database            */
+func getReadAllQuery() string {
+    return `
+        SELECT Id, Name, StartTime, EndTime
+        FROM rooms
+    `
+}
+
+/* Returns a query string that returns *
+ * either 0 (false) or 1 (true)        */
+func getBoolQuery(value bool) string {
+    var bitValue int
+    if value {
+        bitValue = 0
+    } else {
+        bitValue = 1
+    }
+    return fmt.Sprintf("SELECT %d", bitValue)
+}
+
 /* Deserializes the result of a BayouDB read *
  * into a slice of client Room structs       */
 func deserializeRooms(rr ReadResult) []Room {

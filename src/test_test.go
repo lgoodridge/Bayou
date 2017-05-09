@@ -83,7 +83,7 @@ func TestDBBasic(t *testing.T) {
         StartTime,
         EndTime
     ) values(%s, "%s", dateTime("%s"), dateTime("%s"))
-    `, id, name, startTxt, endTxt);
+    `, id, name, startTxt, endTxt)
     db.Execute(query)
 
     // Execute read query
@@ -352,7 +352,46 @@ func TestServerRPC(t *testing.T) {
 
 /* Tests server Read and Write functions */
 func TestServerReadWrite(t *testing.T) {
-    Log.Println("Test not implemented.")
+    numClients := 10
+    port := 1113
+
+    serverPorts := []int{port}
+    clientPorts := make([]int, numClients)
+    for i := 0; i < numClients; i++ {
+        clientPorts[i] = port
+    }
+
+    servers, clients := createNetwork("test_read_write",
+            serverPorts, clientPorts)
+    server := servers[0]
+    defer removeNetwork(servers, clients)
+
+    room := Room{"0", "RW0", createDate(0, 0), createDate(0, 1)}
+    rooms := []Room{room}
+
+    query := getInsertQuery(room)
+    undo := getDeleteQuery(room.Id)
+    check := getBoolQuery(true)
+    merge := getBoolQuery(false)
+
+    writeEntry := LogEntry{0, VectorClock{0}, query, check, merge}
+    undoEntry := LogEntry{0, VectorClock{0}, undo, check, merge}
+
+    // Test a single uncommitted write
+    writeArgs := &WriteArgs{0, query, undo, check, merge}
+    var writeReply WriteReply
+    err := clients[server.id].Call("BayouServer.Write", writeArgs, &writeReply)
+    ensureNoError(t, err, "Single Write RPC failed: ")
+
+    assert(t, writeReply.HasConflict, "Write falsely returned conflict.")
+    assert(t, writeReply.WasResolved, "Write was not resolved.")
+    assert(t, len(server.CommitLog) == 0, "Uncommitted write changed " +
+            "commit log.")
+    assert(t, len(server.ErrorLog) == 0, "Write was falsely written " +
+            "to error log.")
+    assertLogsEqual(t, server.TentativeLog, []LogEntry{writeEntry}, true)
+    assertLogsEqual(t, server.UndoLog, []LogEntry{undoEntry}, true)
+    assertDBContentsEqual(t, server.fullDB, rooms)
 }
 
 /* Tests server Anti-Entropy communication */
