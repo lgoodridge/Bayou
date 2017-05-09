@@ -1,6 +1,7 @@
 package bayou
 
 import (
+    "encoding/gob"
     "time"
     "database/sql"
     _ "github.com/mattn/go-sqlite3"
@@ -29,6 +30,7 @@ type ReadResult []map[string]interface{}
  * Opens the Database file
  */
 func InitDB(filepath string) *BayouDB {
+    gob.Register(time.Time{})
     sqlDB, err := sql.Open("sqlite3", filepath)
     if err != nil { Log.Fatal(err) }
     if sqlDB == nil { Log.Fatal("db nil") }
