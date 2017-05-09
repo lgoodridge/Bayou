@@ -194,6 +194,7 @@ func assertLogsEqual(t *testing.T, log []LogEntry, exp []LogEntry,
         checkOrder bool) {
     failMsg := "Expected Log: " + logToString(exp) + "\nReceived: " +
             logToString(log)
+
     assertEqual(t, len(log), len(exp), failMsg)
     if checkOrder {
         for idx, _ := range log {
@@ -401,7 +402,24 @@ func TestServerAntiEntropy(t *testing.T) {
 
 /* Tests server persistence and recovery */
 func TestServerPersist(t *testing.T) {
-    Log.Println("Test not implemented.")
+    servers, clients := createBayouNetwork("persistTest", 1)
+    defer removeBayouNetwork(servers, clients)
+    clients[0].ClaimRoom("Frist",  1, 1)
+    clients[0].ClaimRoom("Jadwin", 1, 1)
+
+    log1 := servers[0].TentativeLog
+
+    // kill them all (muahaha)
+    clients[0].Kill()
+    servers[0].Kill()
+    servers[0].commitDB.Close()
+    servers[0].fullDB.Close()
+
+    // Check that Persist worked
+    servers, clients = createBayouNetwork("persistTest", 1)
+    log2 := servers[0].TentativeLog
+    assertLogsEqual(t, log1, log2, true)
+
 }
 
 /******************************
