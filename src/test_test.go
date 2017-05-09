@@ -343,10 +343,16 @@ func TestClient(t *testing.T) {
     servers, clients := createBayouNetwork("test_client", 1)
     defer removeBayouNetwork(servers, clients)
 
-    // Test non-conflicting write
+    // Claim a Room
     clients[0].ClaimRoom("Frist", 1, 1)
 
-    // TODO: Check something?
+    // Check that room is claimed
+    room := clients[0].CheckRoom("Frist", 1, 1, false)
+    assert(t, room.Name == "Frist", "Room is broken")
+
+    // Check that other room is not claimed
+    room = clients[0].CheckRoom("Frist", 2, 1, false)
+    assert(t, room.Id == "-1", "Room is broken")
 }
 
 /* Tests that a Bayou network     *
