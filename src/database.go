@@ -48,7 +48,6 @@ func (db *BayouDB) CreateTable() {
     // create table if not exists
     sql_table := `
     CREATE TABLE IF NOT EXISTS rooms(
-        Id TEXT NOT NULL PRIMARY KEY,
         Name TEXT,
         StartTime DATETIME,
         EndTime DATETIME,

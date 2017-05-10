@@ -53,8 +53,7 @@ func getDB(filename string, reset bool) *BayouDB {
 func assertRoomsEqual(t *testing.T, room Room, exp Room) {
     failMsg := "Expected Room: " + exp.String() +
             "\tReceived: " + room.String()
-    if (room.Id != exp.Id) ||
-       (room.Name != exp.Name) ||
+    if (room.Name != exp.Name) ||
        !timesEqual(room.StartTime, exp.StartTime) ||
        !timesEqual(room.EndTime, exp.EndTime) {
         t.Fatal(failMsg)
@@ -65,11 +64,10 @@ func assertRoomsEqual(t *testing.T, room Room, exp Room) {
 func TestDBBasic(t *testing.T) {
     // Open the Database
     const dbpath = "dbbasic.db"
-    db := getDB(dbpath, false)
+    db := getDB(dbpath, true)
     defer db.Close()
 
     name := "Fine"
-    id := "1"
     startDate := createDate(0, 0)
     endDate := createDate(1, 5)
     startTxt := startDate.Format("2006-01-02 15:04")
@@ -78,26 +76,24 @@ func TestDBBasic(t *testing.T) {
     // Execute insertion query
     query := fmt.Sprintf(`
     INSERT OR REPLACE INTO rooms(
-        Id,
         Name,
         StartTime,
         EndTime
-    ) values(%s, "%s", dateTime("%s"), dateTime("%s"))
-    `, id, name, startTxt, endTxt)
+    ) values("%s", dateTime("%s"), dateTime("%s"))
+    `, name, startTxt, endTxt)
     db.Execute(query)
 
     // Execute read query
     readQuery := `
-        SELECT Id, Name, StartTime, EndTime
+        SELECT Name, StartTime, EndTime
         FROM rooms
-        WHERE Id == "1"
     `
     result := db.Read(readQuery)
 
     // Ensure results are as expected
     rooms := deserializeRooms(result)
     assertEqual(t, len(rooms), 1, "Read query returned wrong number of rooms.")
-    assertRoomsEqual(t, rooms[0], Room{id, name, startDate, endDate})
+    assertRoomsEqual(t, rooms[0], Room{name, startDate, endDate})
 
     // Execute a dependency check query
     check := fmt.Sprintf(`
@@ -240,9 +236,8 @@ func assertRoomListsEqual(t *testing.T, rooms []Room, exp []Room,
  * do not match the provided Room list      */
 func assertDBContentsEqual(t *testing.T, db *BayouDB, exp []Room) {
     readQuery := `
-        SELECT Id, Name, StartTime, EndTime
+        SELECT Name, StartTime, EndTime
         FROM rooms
-        ORDER BY Id
     `
     result := db.Read(readQuery)
     rooms := deserializeRooms(result)
@@ -367,11 +362,11 @@ func TestServerReadWrite(t *testing.T) {
     server := servers[0]
     defer removeNetwork(servers, clients)
 
-    room := Room{"0", "RW0", createDate(0, 0), createDate(0, 1)}
+    room := Room{"RW0", createDate(0, 0), createDate(0, 1)}
     rooms := []Room{room}
 
     query := getInsertQuery(room)
-    undo := getDeleteQuery(room.Id)
+    undo := getDeleteQuery(room)
     check := getBoolQuery(true)
     merge := getBoolQuery(false)
 
@@ -470,7 +465,7 @@ func TestClient(t *testing.T) {
 
     // Check that other room is not claimed
     room = clients[0].CheckRoom("Frist", 2, 1, false)
-    assert(t, room.Id == "-1", "Room is broken")
+    assert(t, room.Name == "-1", "Room is broken")
 }
 
 /* Tests that a Bayou network     *
