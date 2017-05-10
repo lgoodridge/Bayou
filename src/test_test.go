@@ -1,6 +1,8 @@
 package bayou
 
 import (
+    "strconv"
+    "time"
     "fmt"
     "net/rpc"
     "os"
@@ -272,7 +274,7 @@ func createNetwork(testName string, serverPorts []int,
     for i, port := range serverPorts {
         id := fmt.Sprintf("%d", i)
         commitDB := getDB(testName + "_" + id + "_commit.db", true)
-        fullDB := getDB(testName + "_" + id + "_commit.db", true)
+        fullDB := getDB(testName + "_" + id + "_full.db", true)
         serverList[i] = NewBayouServer(i, rpcClients, commitDB, fullDB, port)
     }
     for i, port := range clientPorts {
@@ -466,6 +468,36 @@ func TestClient(t *testing.T) {
     // Check that other room is not claimed
     room = clients[0].CheckRoom("Frist", 2, 1, false)
     assert(t, room.Name == "-1", "Room is broken")
+}
+
+func TestReadWriteSpeed(t *testing.T) {
+    servers, clients := createBayouNetwork("test_speed", 10)
+    _ = servers
+    defer removeBayouNetwork(servers, clients)
+
+    var i int
+    for i = 0; i < 5; i++ {
+        servers[0].IsPrimary = true
+        // Test Writes
+        n := 50 * (2 << uint(i))
+        start := time.Now()
+        for j := 0; j < n; j++ {
+            clients[i].ClaimRoom("R" + strconv.Itoa(j), 1, 1)
+        }
+        elapsed := time.Since(start)
+        Log.Printf("Primary, %d took %s\n", n, elapsed)
+    }
+
+    for i = 0; i < 5; i++ {
+        // Test Writes
+        n := 50 * (2 << uint(i))
+        start := time.Now()
+        for j := 0; j < n; j++ {
+            clients[5 + i].ClaimRoom("R" + strconv.Itoa(j), 1, 1)
+        }
+        elapsed := time.Since(start)
+        Log.Printf("Not Primary, %d took %s\n", n, elapsed)
+    }
 }
 
 /* Tests that a Bayou network     *

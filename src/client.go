@@ -110,10 +110,12 @@ func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
           AND Name == "%s" 
     `, startTxt, endTxt, name);
 
-    _, hasConflict, wasResolved := client.sendWriteRPC(query,
+    client.sendWriteRPC(query,
             undo, check, merge)
-    debugf("hasConflict %v\n", hasConflict)
-    debugf("wasResolved %v\n", wasResolved)
+//    _, hasConflict, wasResolved := client.sendWriteRPC(query,
+//            undo, check, merge)
+//    debugf("hasConflict %v\n", hasConflict)
+//    debugf("wasResolved %v\n", wasResolved)
 }
 
 /**********************
