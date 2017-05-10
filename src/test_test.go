@@ -227,7 +227,7 @@ func assertRoomListsEqual(t *testing.T, rooms []Room, exp []Room,
         expStr = expStr + entry.String() + "\n"
     }
     failMsg := prefix + ":\n\nExepected Rooms:\n" + expStr +
-            "\nReceived: " + roomStr
+            "\nReceived:\n" + roomStr
 
     assertEqual(t, len(rooms), len(exp), failMsg)
     for idx, _ := range rooms {
@@ -238,12 +238,7 @@ func assertRoomListsEqual(t *testing.T, rooms []Room, exp []Room,
 /* Fails provided test if database contents *
  * do not match the provided Room list      */
 func assertDBContentsEqual(t *testing.T, db *BayouDB, exp []Room) {
-    readQuery := `
-        SELECT Id, Name, StartTime, EndTime
-        FROM rooms
-        ORDER BY Id
-    `
-    result := db.Read(readQuery)
+    result := db.Read(getReadAllQuery())
     rooms := deserializeRooms(result)
     assertRoomListsEqual(t, rooms, exp, "Database does not contain " +
         "expected contents")
@@ -276,7 +271,7 @@ func createNetwork(testName string, serverPorts []int,
     for i, port := range serverPorts {
         id := fmt.Sprintf("%d", i)
         commitDB := getDB(testName + "_" + id + "_commit.db", true)
-        fullDB := getDB(testName + "_" + id + "_commit.db", true)
+        fullDB := getDB(testName + "_" + id + "_full.db", true)
         serverList[i] = NewBayouServer(i, rpcClients, commitDB, fullDB, port)
     }
     for i, port := range clientPorts {
@@ -327,7 +322,7 @@ func TestServerRPC(t *testing.T) {
     // Test several RPC calls at once
     for i := 0; i < numClients; i++ {
         go func(id int) {
-            debugf("Client #%d sending ping!", id)
+            // debugf("Client #%d sending ping!", id)
             argArr[id].SenderID = id
             newErr := clients[id].Call("BayouServer.Ping",
                     &argArr[id], &replyArr[id])
@@ -366,6 +361,8 @@ func TestServerReadWrite(t *testing.T) {
     server := servers[0]
     defer removeNetwork(servers, clients)
 
+    // PART 1: TESTING WRITE RPCs
+
     room := Room{"0", "RW0", createDate(0, 0), createDate(0, 1)}
     rooms := []Room{room}
 
@@ -374,8 +371,10 @@ func TestServerReadWrite(t *testing.T) {
     check := getBoolQuery(true)
     merge := getBoolQuery(false)
 
-    writeEntry := LogEntry{0, VectorClock{0}, query, check, merge}
-    undoEntry := LogEntry{0, VectorClock{0}, undo, check, merge}
+    vclock := NewVectorClock(numClients)
+    vclock.Inc(server.id)
+    writeEntry := NewLogEntry(0, vclock, query, check, merge)
+    undoEntry := NewLogEntry(0, vclock, undo, "", "")
 
     // Test a single uncommitted write
     writeArgs := &WriteArgs{0, query, undo, check, merge}
@@ -383,7 +382,7 @@ func TestServerReadWrite(t *testing.T) {
     err := clients[server.id].Call("BayouServer.Write", writeArgs, &writeReply)
     ensureNoError(t, err, "Single Write RPC failed: ")
 
-    assert(t, writeReply.HasConflict, "Write falsely returned conflict.")
+    assert(t, !writeReply.HasConflict, "Write falsely returned conflict.")
     assert(t, writeReply.WasResolved, "Write was not resolved.")
     assert(t, len(server.CommitLog) == 0, "Uncommitted write changed " +
             "commit log.")
@@ -391,8 +390,207 @@ func TestServerReadWrite(t *testing.T) {
             "to error log.")
     assertLogsEqual(t, server.TentativeLog, []LogEntry{writeEntry}, true)
     assertLogsEqual(t, server.UndoLog, []LogEntry{undoEntry}, true)
+    assertDBContentsEqual(t, server.commitDB, []Room{})
     assertDBContentsEqual(t, server.fullDB, rooms)
-}
+
+    // Test a conflicting, uncomitted write
+    room = Room{"1", "RW1", createDate(1, 0), createDate(1, 1)}
+    query = getInsertQuery(room)
+    undo = getDeleteQuery(room.Id)
+    check = getBoolQuery(false)
+    merge = getBoolQuery(true)
+    vclock.Inc(server.id)
+    writeEntry2 := NewLogEntry(1, vclock, query, check, merge)
+    undoEntry2 := NewLogEntry(1, vclock, undo, "", "")
+
+    writeArgs = &WriteArgs{1, query, undo, check, merge}
+    writeReply = WriteReply{}
+    err = clients[server.id].Call("BayouServer.Write", writeArgs, &writeReply)
+    ensureNoError(t, err, "Conflicting Write RPC failed: ")
+
+    assert(t, writeReply.HasConflict, "Write failed to return conflict.")
+    assert(t, writeReply.WasResolved, "Write was not resolved.")
+    assert(t, len(server.CommitLog) == 0, "Uncommitted write changed " +
+            "commit log.")
+    assert(t, len(server.ErrorLog) == 0, "Write was falsely written " +
+            "to error log.")
+    assertLogsEqual(t, server.TentativeLog,
+            []LogEntry{writeEntry, writeEntry2}, true)
+    assertLogsEqual(t, server.UndoLog,
+            []LogEntry{undoEntry, undoEntry2}, true)
+    assertDBContentsEqual(t, server.commitDB, []Room{})
+    // Note: DB does not change from last test because
+    // write conflicts and merge query does not insert anything
+    assertDBContentsEqual(t, server.fullDB, rooms)
+
+    // Test a conflicting, unresolvable uncomitted write
+    room = Room{"2", "RW2", createDate(2, 0), createDate(2, 1)}
+    query = getInsertQuery(room)
+    undo = getDeleteQuery(room.Id)
+    merge = getBoolQuery(false)
+    vclock.Inc(server.id)
+    writeEntry3 := NewLogEntry(2, vclock, query, check, merge)
+    undoEntry3 := NewLogEntry(2, vclock, undo, "", "")
+
+    writeArgs = &WriteArgs{2, query, undo, check, merge}
+    writeReply = WriteReply{}
+    err = clients[server.id].Call("BayouServer.Write", writeArgs, &writeReply)
+    ensureNoError(t, err, "Unresolveable Write RPC failed: ")
+
+    assert(t, writeReply.HasConflict, "Write failed to return conflict.")
+    assert(t, !writeReply.WasResolved, "Write was falsely resolved.")
+    assert(t, len(server.CommitLog) == 0, "Uncommitted write changed " +
+            "commit log.")
+    assertLogsEqual(t, server.ErrorLog, []LogEntry{writeEntry3}, true)
+    // Note: In our implementation, even unresolvable writes are
+    // added to the write logs, they are just also added to the error log
+    assertLogsEqual(t, server.TentativeLog,
+            []LogEntry{writeEntry, writeEntry2, writeEntry3}, true)
+    assertLogsEqual(t, server.UndoLog,
+            []LogEntry{undoEntry, undoEntry2, undoEntry3}, true)
+    assertDBContentsEqual(t, server.commitDB, []Room{})
+    // Note: As explained above, the DB should not change
+    assertDBContentsEqual(t, server.fullDB, rooms)
+
+    // Test a committed write
+    room = Room{"3", "RW3", createDate(3, 0), createDate(3, 1)}
+    rooms = append(rooms, room)
+    query = getInsertQuery(room)
+    undo = getDeleteQuery(room.Id)
+    check = getBoolQuery(true)
+    vclock = NewVectorClock(numClients)
+    vclock.Inc(server.id)
+    writeEntry4 := NewLogEntry(3, vclock, query, check, merge)
+
+    server.IsPrimary = true
+    writeArgs = &WriteArgs{3, query, undo, check, merge}
+    writeReply = WriteReply{}
+    err = clients[server.id].Call("BayouServer.Write", writeArgs, &writeReply)
+    ensureNoError(t, err, "Comitted Write RPC failed: ")
+
+    assert(t, !writeReply.HasConflict, "Write falsely returned conflict.")
+    assert(t, writeReply.WasResolved, "Write was falsely resolved.")
+    assertLogsEqual(t, server.CommitLog, []LogEntry{writeEntry4}, true)
+    assertLogsEqual(t, server.ErrorLog, []LogEntry{writeEntry3}, true)
+    assertLogsEqual(t, server.TentativeLog,
+            []LogEntry{writeEntry, writeEntry2, writeEntry3}, true)
+    assertLogsEqual(t, server.UndoLog,
+            []LogEntry{undoEntry, undoEntry2, undoEntry3}, true)
+    assertDBContentsEqual(t, server.commitDB, []Room{room})
+    // Note: committed writes are added to committed and full DBs,
+    // which is why expect the room to appear in the ful DB
+    assertDBContentsEqual(t, server.fullDB, rooms)
+
+    // PART 2: TESTING READ RPCs
+
+    // Test a no-op read query
+    query = getBoolQuery(true)
+    readArgs := &ReadArgs{query, true}
+    var readReply ReadReply
+    err = clients[server.id].Call("BayouServer.Read", readArgs, &readReply)
+    ensureNoError(t, err, "No-op Read RPC failed: ")
+
+    assertEqual(t, len(readReply.Data), 1, "No-op query returned map " +
+            "of wrong size")
+    value, hasKey := readReply.Data[0]["1"]
+    assert(t, hasKey, "No-op query returned map with wrong keys")
+    assertEqual(t, value, int64(1), "No-op query returned map with wrong value")
+
+    // Test a read-all query from full DB
+    query = getReadAllQuery()
+    readArgs = &ReadArgs{query, false}
+    readReply = ReadReply{}
+    err = clients[server.id].Call("BayouServer.Read", readArgs, &readReply)
+    ensureNoError(t, err, "Read all RPC failed: ")
+    readRooms := deserializeRooms(readReply.Data)
+    assertRoomListsEqual(t, readRooms, rooms, "Incorrect Read All result: ")
+
+    // Test a specific read query from full DB
+    query = getReadQuery("0")
+    readArgs = &ReadArgs{query, false}
+    readReply = ReadReply{}
+    err = clients[server.id].Call("BayouServer.Read", readArgs, &readReply)
+    ensureNoError(t, err, "Specific Read RPC failed: ")
+    readRooms = deserializeRooms(readReply.Data)
+    assertRoomListsEqual(t, readRooms, []Room{rooms[0]}, "Incorrect " +
+            "specific Read result: ")
+
+    // Test a read query from commit DB
+    query = getReadAllQuery()
+    readArgs = &ReadArgs{query, true}
+    readReply = ReadReply{}
+    err = clients[server.id].Call("BayouServer.Read", readArgs, &readReply)
+    ensureNoError(t, err, "Read all committed RPC failed: ")
+    readRooms = deserializeRooms(readReply.Data)
+    assertRoomListsEqual(t, readRooms, []Room{room}, "Incorrect " +
+            "Read all comitted result: ")
+
+    // Test that query for non-existent item returns nothing
+    query = getReadQuery("1")
+    readArgs = &ReadArgs{query, false}
+    readReply = ReadReply{}
+    err = clients[server.id].Call("BayouServer.Read", readArgs, &readReply)
+    ensureNoError(t, err, "Read non-existent RPC failed: ")
+    assertEqual(t, len(readReply.Data), 0, "Read of non-existent item " +
+            "returned non-empty result")
+
+    // PART 3: CONCURRENT READS / WRITES
+
+    var wg sync.WaitGroup
+    wg.Add(numClients)
+
+    writeArgArr := make([]WriteArgs, numClients)
+    writeReplyArr := make([]WriteReply, numClients)
+
+    // Perform Concurrent Write RPC calls
+    for i := 0; i < numClients; i++ {
+        go func(id int) {
+            // debugf("Client #%d sending write!", id)
+            roomName := fmt.Sprintf("CRW%d", id)
+            croom := Room{fmt.Sprintf("%d", 90+id), roomName,
+                    createDate(id, 0), createDate(id, 1)}
+            cquery := getInsertQuery(croom)
+            cundo := getDeleteQuery(croom.Id)
+            writeArgArr[id] = WriteArgs{10+id, cquery, cundo, check, merge}
+            cerr := clients[server.id].Call("BayouServer.Write",
+                    &writeArgArr[id], &writeReplyArr[id])
+            ensureNoError(t, cerr, "Concurrent Write RPC failed: ")
+            wg.Done()
+        } (i)
+    }
+    wg.Wait()
+
+    // Update rooms array to hold contents of previous writes
+    for i := 0; i < numClients; i++ {
+        newroom := Room{fmt.Sprintf("%d", 90+i), fmt.Sprintf("CRW%d", i),
+                createDate(i, 0), createDate(i, 1)}
+        rooms = append(rooms, newroom)
+    }
+    assertDBContentsEqual(t, server.fullDB, rooms)
+
+    query = getReadAllQuery()
+    readArgArr := make([]ReadArgs, numClients)
+    readReplyArr := make([]ReadReply, numClients)
+
+    // Perform Concurrent Read RPC calls
+    // and ensure results are correct
+    wg.Add(numClients)
+    for i := 0; i < numClients; i++ {
+        go func(id int) {
+            // debugf("Client #%d sending read!", id)
+            readArgArr[id] = ReadArgs{query, false}
+            rerr := clients[server.id].Call("BayouServer.Read",
+                    &readArgArr[id], &readReplyArr[id])
+            ensureNoError(t, rerr, "Concurrent Read RPC failed: ")
+            // Ensure results are correct
+            crooms := deserializeRooms(readReplyArr[id].Data)
+            assertRoomListsEqual(t, crooms, rooms, "Concurrent R/W " +
+                    "returned incorrect result: ")
+            wg.Done()
+        } (i)
+    }
+    wg.Wait()
+ }
 
 /* Tests server Anti-Entropy communication */
 func TestServerAntiEntropy(t *testing.T) {
@@ -443,16 +641,10 @@ func TestClient(t *testing.T) {
     servers, clients := createBayouNetwork("test_client", 1)
     defer removeBayouNetwork(servers, clients)
 
-    // Claim a Room
+    // Test non-conflicting write
     clients[0].ClaimRoom("Frist", 1, 1)
 
-    // Check that room is claimed
-    room := clients[0].CheckRoom("Frist", 1, 1, false)
-    assert(t, room.Name == "Frist", "Room is broken")
-
-    // Check that other room is not claimed
-    room = clients[0].CheckRoom("Frist", 2, 1, false)
-    assert(t, room.Id == "-1", "Room is broken")
+    // TODO: Check something?
 }
 
 /* Tests that a Bayou network     *

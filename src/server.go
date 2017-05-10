@@ -419,9 +419,9 @@ func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) error {
     }
 
     // Create entries for each of the logs
-    writeEntry := LogEntry{args.WriteID, writeClock, args.Query,
-            args.Check, args.Merge}
-    undoEntry := LogEntry{args.WriteID, writeClock, args.Undo, "", ""}
+    writeEntry := NewLogEntry(args.WriteID, writeClock, args.Query,
+            args.Check, args.Merge)
+    undoEntry := NewLogEntry(args.WriteID, writeClock, args.Undo, "", "")
 
     server.logLock.Lock()
     defer server.logLock.Unlock()

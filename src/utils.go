@@ -18,7 +18,7 @@ const DEBUG_MODE bool = true
 
 /* Maximum number of characters to use when *
  * printing a log entry's query string      */
-const MAX_QUERY_CHARS int = 50
+const MAX_QUERY_CHARS int = 300
 
 /**************************
  *    ERROR UTILITIES     *
@@ -154,12 +154,21 @@ func entriesAreEqual(entry1 LogEntry, entry2 LogEntry, checkTime bool) bool {
     return contentEqual
 }
 
+func NewLogEntry(writeID int, vclock VectorClock, query string,
+        check string, merge string) LogEntry {
+    // Make defensive copy of VectorClock
+    copyclock := NewVectorClock(len(vclock))
+    copy(copyclock, vclock)
+    return LogEntry{writeID, copyclock, query, check, merge}
+}
+
 func (entry LogEntry) String() string {
     queryStr := entry.Query
     if len(queryStr) > MAX_QUERY_CHARS {
         queryStr = queryStr[:MAX_QUERY_CHARS] + "..."
     }
-    return fmt.Sprintf("#%d: ", entry.WriteID) + entry.Query
+    return fmt.Sprintf("#%d: ", entry.WriteID) + "\n" +
+            entry.Timestamp.String() + "\n" + queryStr
 }
 
 /***************************
@@ -199,12 +208,13 @@ func getReadQuery(id string) string {
     `, id)
 }
 
-/* Returns a query string that retrieves *
- * all the rooms the database            */
+/* Returns a query string that retrieves all  *
+ * the rooms from the database, ordered by ID */
 func getReadAllQuery() string {
     return `
         SELECT Id, Name, StartTime, EndTime
         FROM rooms
+        ORDER BY Id
     `
 }
 
@@ -213,9 +223,9 @@ func getReadAllQuery() string {
 func getBoolQuery(value bool) string {
     var bitValue int
     if value {
-        bitValue = 0
-    } else {
         bitValue = 1
+    } else {
+        bitValue = 0
     }
     return fmt.Sprintf("SELECT %d", bitValue)
 }
@@ -240,7 +250,7 @@ func roomsAreEqual(room1 Room, room2 Room) bool {
     return (room1.Id == room2.Id) &&
             (room1.Name == room2.Name) &&
             (timesEqual(room1.StartTime, room2.StartTime)) &&
-            (timesEqual(room1.StartTime, room2.EndTime))
+            (timesEqual(room1.EndTime, room2.EndTime))
 }
 
 func (room Room) String() string {
