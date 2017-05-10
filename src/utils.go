@@ -178,43 +178,49 @@ func (entry LogEntry) String() string {
 /* Returns a query string that inserts a room   *
  * into the database wwith provided information */
 func getInsertQuery(room Room) string {
+    startTxt := room.StartTime.Format(TIME_FORMAT_STR)
+    endTxt   := room.EndTime.Format(TIME_FORMAT_STR)
     return fmt.Sprintf(`
         INSERT OR REPLACE INTO rooms(
-            Id,
             Name,
             StartTime,
             EndTime
-        ) values(%s, "%s", dateTime("%s"), dateTime("%s"))
-    `, room.Id, room.Name, room.StartTime.Format(TIME_FORMAT_STR),
-            room.EndTime.Format(TIME_FORMAT_STR))
+        ) values("%s", dateTime("%s"), dateTime("%s"))
+    `, room.Name, startTxt, endTxt)
 }
 
-/* Returns a query string that deletes a room *
- * with the specified id from the database    */
-func getDeleteQuery(id string) string {
+/* Returns a query string that deletes  *
+ * the specified room from the database */
+func getDeleteQuery(room Room) string {
+    startTxt := room.StartTime.Format(TIME_FORMAT_STR)
+    endTxt   := room.EndTime.Format(TIME_FORMAT_STR)
     return fmt.Sprintf(`
         DELETE FROM rooms
-        WHERE Id = %s
-    `, id)
+        WHERE StartTime BETWEEN dateTime("%s") AND dateTime("%s")
+            AND Name == "%s"
+    `, startTxt, endTxt, room.Name)
 }
 
-/* Returns a query string that retrieves the    *
- * room with the specified id from the database */
-func getReadQuery(id string) string {
+/* Returns a query string that retrieves *
+ * the specified room from the database  */
+func getReadQuery(room Room) string {
+    startTxt := room.StartTime.Format(TIME_FORMAT_STR)
+    endTxt   := room.EndTime.Format(TIME_FORMAT_STR)
     return fmt.Sprintf(`
-        SELECT Id, Name, StartTime, EndTime
+        SELECT Name, StartTime, EndTime
         FROM rooms
-        WHERE Id == "%s"
-    `, id)
+        WHERE StartTime BETWEEN dateTime("%s") AND dateTime("%s")
+            AND Name == "%s"
+    `, startTxt, endTxt, room.Name)
 }
 
-/* Returns a query string that retrieves all  *
- * the rooms from the database, ordered by ID */
+/* Returns a query string that retrieves all the rooms *
+ * from the database, ordered by name, then times      */
 func getReadAllQuery() string {
     return `
-        SELECT Id, Name, StartTime, EndTime
+        SELECT Name, StartTime, EndTime
         FROM rooms
-        ORDER BY Id
+        ORDER BY Name, StartTime, EndTime
     `
 }
 
@@ -236,7 +242,6 @@ func deserializeRooms(rr ReadResult) []Room {
     rooms := make([]Room, len(rr))
     for i, rowData := range rr {
         room := Room{}
-        room.Id = string(rowData["Id"].([]byte))
         room.Name = string(rowData["Name"].([]byte))
         room.StartTime = rowData["StartTime"].(time.Time)
         room.EndTime = rowData["EndTime"].(time.Time)
@@ -247,14 +252,13 @@ func deserializeRooms(rr ReadResult) []Room {
 
 /* Returns whether two Rooms have identical content */
 func roomsAreEqual(room1 Room, room2 Room) bool {
-    return (room1.Id == room2.Id) &&
-            (room1.Name == room2.Name) &&
+    return (room1.Name == room2.Name) &&
             (timesEqual(room1.StartTime, room2.StartTime)) &&
             (timesEqual(room1.EndTime, room2.EndTime))
 }
 
 func (room Room) String() string {
-    return fmt.Sprintf("Room: #%s, %s, %s, %s", room.Id, room.Name,
+    return fmt.Sprintf("Room: %s, %s, %s", room.Name,
             room.StartTime, room.EndTime)
 }
 

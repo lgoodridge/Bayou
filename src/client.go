@@ -18,7 +18,6 @@ type BayouClient struct {
 
 /* Represents a room in the scheduling app */
 type Room struct {
-    Id          string
     Name        string
     StartTime   time.Time
     EndTime     time.Time
@@ -53,7 +52,7 @@ func (client *BayouClient) CheckRoom(name string, day int, hour int,
 //    endTxt   := endDate.Format("2006-01-02 15:04")
 
     query := fmt.Sprintf(`
-    SELECT Id, Name, StartTime, EndTime FROM rooms
+    SELECT Name, StartTime, EndTime FROM rooms
     WHERE StartTime BETWEEN dateTime("%s") AND dateTime("%s")
     `, startTxt, startTxt);
     err, result :=  client.sendReadRPC(query, false)
@@ -66,7 +65,7 @@ func (client *BayouClient) CheckRoom(name string, day int, hour int,
 
     if (len(rooms) == 0) {
         var r Room
-        r.Id = "-1"
+        r.Name = "-1"
         return r
     }
     return rooms[0]
@@ -79,20 +78,15 @@ func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
     endDate   := createDate(day, hour + 1)
     startTxt  := startDate.Format("2006-01-02 15:04")
     endTxt    :=   endDate.Format("2006-01-02 15:04")
-    id := "1"
 
     // Create Room
-    // TODO: Make global id's
-    // room := Room{id, name, startDate, endDate}
-
     query := fmt.Sprintf(`
     INSERT OR REPLACE INTO rooms(
-        Id,
         Name,
         StartTime,
         EndTime
-    ) values(%s, "%s", dateTime("%s"), dateTime("%s"))
-    `, id, name, startTxt, endTxt);
+    ) values("%s", dateTime("%s"), dateTime("%s"))
+    `, name, startTxt, endTxt);
 
     check := fmt.Sprintf(`
     SELECT CASE WHEN EXISTS (
@@ -109,16 +103,19 @@ func (client *BayouClient) ClaimRoom(name string, day int, hour int) {
     SELECT 0
     `
 
-    // TODO: Fix this with global ids
+    // TODO: Check This
     undo := fmt.Sprintf(`
     DELETE FROM rooms
-    WHERE Id = %d
-    `, id);
+    WHERE StartTime BETWEEN dateTime("%s") AND dateTime("%s") 
+          AND Name == "%s" 
+    `, startTxt, endTxt, name);
 
-    _, hasConflict, wasResolved := client.sendWriteRPC(query,
+    client.sendWriteRPC(query,
             undo, check, merge)
-    debugf("hasConflict %v\n", hasConflict)
-    debugf("wasResolved %v\n", wasResolved)
+//    _, hasConflict, wasResolved := client.sendWriteRPC(query,
+//            undo, check, merge)
+//    debugf("hasConflict %v\n", hasConflict)
+//    debugf("wasResolved %v\n", wasResolved)
 }
 
 /**********************

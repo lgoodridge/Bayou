@@ -1,6 +1,8 @@
 package bayou
 
 import (
+    "strconv"
+    "time"
     "fmt"
     "net/rpc"
     "os"
@@ -53,8 +55,7 @@ func getDB(filename string, reset bool) *BayouDB {
 func assertRoomsEqual(t *testing.T, room Room, exp Room) {
     failMsg := "Expected Room: " + exp.String() +
             "\tReceived: " + room.String()
-    if (room.Id != exp.Id) ||
-       (room.Name != exp.Name) ||
+    if (room.Name != exp.Name) ||
        !timesEqual(room.StartTime, exp.StartTime) ||
        !timesEqual(room.EndTime, exp.EndTime) {
         t.Fatal(failMsg)
@@ -65,11 +66,10 @@ func assertRoomsEqual(t *testing.T, room Room, exp Room) {
 func TestDBBasic(t *testing.T) {
     // Open the Database
     const dbpath = "dbbasic.db"
-    db := getDB(dbpath, false)
+    db := getDB(dbpath, true)
     defer db.Close()
 
     name := "Fine"
-    id := "1"
     startDate := createDate(0, 0)
     endDate := createDate(1, 5)
     startTxt := startDate.Format("2006-01-02 15:04")
@@ -78,26 +78,24 @@ func TestDBBasic(t *testing.T) {
     // Execute insertion query
     query := fmt.Sprintf(`
     INSERT OR REPLACE INTO rooms(
-        Id,
         Name,
         StartTime,
         EndTime
-    ) values(%s, "%s", dateTime("%s"), dateTime("%s"))
-    `, id, name, startTxt, endTxt)
+    ) values("%s", dateTime("%s"), dateTime("%s"))
+    `, name, startTxt, endTxt)
     db.Execute(query)
 
     // Execute read query
     readQuery := `
-        SELECT Id, Name, StartTime, EndTime
+        SELECT Name, StartTime, EndTime
         FROM rooms
-        WHERE Id == "1"
     `
     result := db.Read(readQuery)
 
     // Ensure results are as expected
     rooms := deserializeRooms(result)
     assertEqual(t, len(rooms), 1, "Read query returned wrong number of rooms.")
-    assertRoomsEqual(t, rooms[0], Room{id, name, startDate, endDate})
+    assertRoomsEqual(t, rooms[0], Room{name, startDate, endDate})
 
     // Execute a dependency check query
     check := fmt.Sprintf(`
@@ -194,6 +192,7 @@ func assertLogsEqual(t *testing.T, log []LogEntry, exp []LogEntry,
         checkOrder bool) {
     failMsg := "Expected Log: " + logToString(exp) + "\nReceived: " +
             logToString(log)
+
     assertEqual(t, len(log), len(exp), failMsg)
     if checkOrder {
         for idx, _ := range log {
@@ -363,11 +362,11 @@ func TestServerReadWrite(t *testing.T) {
 
     // PART 1: TESTING WRITE RPCs
 
-    room := Room{"0", "RW0", createDate(0, 0), createDate(0, 1)}
+    room := Room{"RW0", createDate(0, 0), createDate(0, 1)}
     rooms := []Room{room}
 
     query := getInsertQuery(room)
-    undo := getDeleteQuery(room.Id)
+    undo := getDeleteQuery(room)
     check := getBoolQuery(true)
     merge := getBoolQuery(false)
 
@@ -394,9 +393,9 @@ func TestServerReadWrite(t *testing.T) {
     assertDBContentsEqual(t, server.fullDB, rooms)
 
     // Test a conflicting, uncomitted write
-    room = Room{"1", "RW1", createDate(1, 0), createDate(1, 1)}
+    room = Room{"RW1", createDate(1, 0), createDate(1, 1)}
     query = getInsertQuery(room)
-    undo = getDeleteQuery(room.Id)
+    undo = getDeleteQuery(room)
     check = getBoolQuery(false)
     merge = getBoolQuery(true)
     vclock.Inc(server.id)
@@ -424,9 +423,9 @@ func TestServerReadWrite(t *testing.T) {
     assertDBContentsEqual(t, server.fullDB, rooms)
 
     // Test a conflicting, unresolvable uncomitted write
-    room = Room{"2", "RW2", createDate(2, 0), createDate(2, 1)}
+    room = Room{"RW2", createDate(2, 0), createDate(2, 1)}
     query = getInsertQuery(room)
-    undo = getDeleteQuery(room.Id)
+    undo = getDeleteQuery(room)
     merge = getBoolQuery(false)
     vclock.Inc(server.id)
     writeEntry3 := NewLogEntry(2, vclock, query, check, merge)
@@ -453,10 +452,10 @@ func TestServerReadWrite(t *testing.T) {
     assertDBContentsEqual(t, server.fullDB, rooms)
 
     // Test a committed write
-    room = Room{"3", "RW3", createDate(3, 0), createDate(3, 1)}
+    room = Room{"RW3", createDate(3, 0), createDate(3, 1)}
     rooms = append(rooms, room)
     query = getInsertQuery(room)
-    undo = getDeleteQuery(room.Id)
+    undo = getDeleteQuery(room)
     check = getBoolQuery(true)
     vclock = NewVectorClock(numClients)
     vclock.Inc(server.id)
@@ -506,7 +505,7 @@ func TestServerReadWrite(t *testing.T) {
     assertRoomListsEqual(t, readRooms, rooms, "Incorrect Read All result: ")
 
     // Test a specific read query from full DB
-    query = getReadQuery("0")
+    query = getReadQuery(rooms[0])
     readArgs = &ReadArgs{query, false}
     readReply = ReadReply{}
     err = clients[server.id].Call("BayouServer.Read", readArgs, &readReply)
@@ -526,8 +525,8 @@ func TestServerReadWrite(t *testing.T) {
             "Read all comitted result: ")
 
     // Test that query for non-existent item returns nothing
-    query = getReadQuery("1")
-    readArgs = &ReadArgs{query, false}
+    query = getReadQuery(rooms[0])
+    readArgs = &ReadArgs{query, true}
     readReply = ReadReply{}
     err = clients[server.id].Call("BayouServer.Read", readArgs, &readReply)
     ensureNoError(t, err, "Read non-existent RPC failed: ")
@@ -546,11 +545,10 @@ func TestServerReadWrite(t *testing.T) {
     for i := 0; i < numClients; i++ {
         go func(id int) {
             // debugf("Client #%d sending write!", id)
-            roomName := fmt.Sprintf("CRW%d", id)
-            croom := Room{fmt.Sprintf("%d", 90+id), roomName,
-                    createDate(id, 0), createDate(id, 1)}
+            roomName := fmt.Sprintf("ZRW%d", id)
+            croom := Room{roomName, createDate(id, 0), createDate(id, 1)}
             cquery := getInsertQuery(croom)
-            cundo := getDeleteQuery(croom.Id)
+            cundo := getDeleteQuery(croom)
             writeArgArr[id] = WriteArgs{10+id, cquery, cundo, check, merge}
             cerr := clients[server.id].Call("BayouServer.Write",
                     &writeArgArr[id], &writeReplyArr[id])
@@ -562,8 +560,8 @@ func TestServerReadWrite(t *testing.T) {
 
     // Update rooms array to hold contents of previous writes
     for i := 0; i < numClients; i++ {
-        newroom := Room{fmt.Sprintf("%d", 90+i), fmt.Sprintf("CRW%d", i),
-                createDate(i, 0), createDate(i, 1)}
+        newroom := Room{fmt.Sprintf("ZRW%d", i), createDate(i, 0),
+                createDate(i, 1)}
         rooms = append(rooms, newroom)
     }
     assertDBContentsEqual(t, server.fullDB, rooms)
@@ -599,7 +597,23 @@ func TestServerAntiEntropy(t *testing.T) {
 
 /* Tests server persistence and recovery */
 func TestServerPersist(t *testing.T) {
-    Log.Println("Test not implemented.")
+    servers, clients := createBayouNetwork("persistTest", 1)
+    clients[0].ClaimRoom("Frist",  1, 1)
+    clients[0].ClaimRoom("Jadwin", 1, 1)
+
+    log1 := servers[0].TentativeLog
+
+    // kill them all (muahaha)
+    clients[0].Kill()
+    servers[0].Kill()
+    servers[0].commitDB.Close()
+    servers[0].fullDB.Close()
+
+    // Check that Persist worked
+    servers, clients = createBayouNetwork("persistTest", 1)
+    defer removeBayouNetwork(servers, clients)
+    log2 := servers[0].TentativeLog
+    assertLogsEqual(t, log1, log2, true)
 }
 
 /******************************
@@ -644,7 +658,45 @@ func TestClient(t *testing.T) {
     // Test non-conflicting write
     clients[0].ClaimRoom("Frist", 1, 1)
 
-    // TODO: Check something?
+    // Check that room is claimed
+    room := clients[0].CheckRoom("Frist", 1, 1, false)
+    assert(t, room.Name == "Frist", "Room is broken")
+
+    // Check that other room is not claimed
+    room = clients[0].CheckRoom("Frist", 2, 1, false)
+    assert(t, room.Name == "-1", "Room is broken")
+}
+
+/* Tests: IDK                          *
+ * Result: something something linear? */
+func TestReadWriteSpeed(t *testing.T) {
+    servers, clients := createBayouNetwork("test_speed", 10)
+    _ = servers // uh, okay? (Lance)
+    defer removeBayouNetwork(servers, clients)
+
+    var i int
+    for i = 0; i < 5; i++ {
+        servers[0].IsPrimary = true
+        // Test Writes
+        n := 50 * (2 << uint(i))
+        start := time.Now()
+        for j := 0; j < n; j++ {
+            clients[i].ClaimRoom("R" + strconv.Itoa(j), 1, 1)
+        }
+        elapsed := time.Since(start)
+        Log.Printf("Primary, %d took %s\n", n, elapsed)
+    }
+
+    for i = 0; i < 5; i++ {
+        // Test Writes
+        n := 50 * (2 << uint(i))
+        start := time.Now()
+        for j := 0; j < n; j++ {
+            clients[5 + i].ClaimRoom("R" + strconv.Itoa(j), 1, 1)
+        }
+        elapsed := time.Since(start)
+        Log.Printf("Not Primary, %d took %s\n", n, elapsed)
+    }
 }
 
 /* Tests that a Bayou network     *
