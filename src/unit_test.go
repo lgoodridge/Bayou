@@ -1,8 +1,6 @@
 package bayou
 
 import (
-    "strconv"
-    "time"
     "fmt"
     "net/rpc"
     "os"
@@ -63,7 +61,7 @@ func assertRoomsEqual(t *testing.T, room Room, exp Room) {
 }
 
 /* Tests basic database functionality */
-func TestDBBasic(t *testing.T) {
+func TestUnitDBBasic(t *testing.T) {
     // Open the Database
     const dbpath = "dbbasic.db"
     db := getDB(dbpath, true)
@@ -116,7 +114,6 @@ func TestDBBasic(t *testing.T) {
     assert(t, !db.Check(merge), "Merge check failed.")
 }
 
-
 /*****************************
  *    VECTOR CLOCK TESTS     *
  *****************************/
@@ -135,7 +132,7 @@ func assertVCsEqual(t *testing.T, vc VectorClock, exp VectorClock) {
 }
 
 /* Unit tests vector clock */
-func TestVectorClock(t *testing.T) {
+func TestUnitVectorClock(t *testing.T) {
     vc := NewVectorClock(4)
     assertVCsEqual(t, vc, VectorClock{0, 0, 0, 0})
 
@@ -286,7 +283,7 @@ func removeNetwork(servers []*BayouServer, clients []*rpc.Client) {
 }
 
 /* Tests server RPC functionality */
-func TestServerRPC(t *testing.T) {
+func TestUnitServerRPC(t *testing.T) {
     numClients := 10
     port := 1111
     otherPort := 1112
@@ -345,7 +342,7 @@ func TestServerRPC(t *testing.T) {
 }
 
 /* Tests server Read and Write functions */
-func TestServerReadWrite(t *testing.T) {
+func TestUnitServerReadWrite(t *testing.T) {
     numClients := 10
     port := 1113
 
@@ -591,12 +588,12 @@ func TestServerReadWrite(t *testing.T) {
  }
 
 /* Tests server Anti-Entropy communication */
-func TestServerAntiEntropy(t *testing.T) {
+func TestUnitServerAntiEntropy(t *testing.T) {
     Log.Println("Test not implemented.")
 }
 
 /* Tests server persistence and recovery */
-func TestServerPersist(t *testing.T) {
+func TestUnitServerPersist(t *testing.T) {
     servers, clients := createBayouNetwork("persistTest", 1)
     clients[0].ClaimRoom("Frist",  1, 1)
     clients[0].ClaimRoom("Jadwin", 1, 1)
@@ -651,7 +648,7 @@ func startBayouNetworkComm(servers []*BayouServer) {
 }
 
 /* Tests client functionality */
-func TestClient(t *testing.T) {
+func TestUnitClient(t *testing.T) {
     servers, clients := createBayouNetwork("test_client", 1)
     defer removeBayouNetwork(servers, clients)
 
@@ -667,46 +664,14 @@ func TestClient(t *testing.T) {
     assert(t, room.Name == "-1", "Room is broken")
 }
 
-/* Tests: IDK                          *
- * Result: something something linear? */
-func TestReadWriteSpeed(t *testing.T) {
-    servers, clients := createBayouNetwork("test_speed", 10)
-    _ = servers // uh, okay? (Lance)
-    defer removeBayouNetwork(servers, clients)
-
-    var i int
-    for i = 0; i < 5; i++ {
-        servers[0].IsPrimary = true
-        // Test Writes
-        n := 50 * (2 << uint(i))
-        start := time.Now()
-        for j := 0; j < n; j++ {
-            clients[i].ClaimRoom("R" + strconv.Itoa(j), 1, 1)
-        }
-        elapsed := time.Since(start)
-        Log.Printf("Primary, %d took %s\n", n, elapsed)
-    }
-
-    for i = 0; i < 5; i++ {
-        // Test Writes
-        n := 50 * (2 << uint(i))
-        start := time.Now()
-        for j := 0; j < n; j++ {
-            clients[5 + i].ClaimRoom("R" + strconv.Itoa(j), 1, 1)
-        }
-        elapsed := time.Since(start)
-        Log.Printf("Not Primary, %d took %s\n", n, elapsed)
-    }
-}
-
 /* Tests that a Bayou network     *
  * eventually reaches consistency */
-func TestNetworkBasic(t *testing.T) {
+func TestUnitNetworkBasic(t *testing.T) {
     Log.Println("Test not implemented.")
 }
 
 /* Tests that a Bayou network eventually reaches *
  * consistency in the face of network partitions */
-func TestNetworkPartition(t *testing.T) {
+func TestUnitNetworkPartition(t *testing.T) {
     Log.Println("Test not implemented.")
 }
