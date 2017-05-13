@@ -97,6 +97,17 @@ func randomIntn(max int) int {
 /* Format string to use when converting times to strings */
 const TIME_FORMAT_STR = "2006-01-02 15:04"
 
+/* Sleeps current goroutine for specified milliseconds */
+func sleep(millis int, printout bool) {
+    if printout {
+        debugf("Waiting for %d ms...", millis)
+    }
+    time.Sleep(time.Duration(millis) * time.Millisecond)
+    if printout {
+        debugf("Done waiting!")
+    }
+}
+
 /* Returns a new timeout duration between *
  * minDuration to 2*minDuration ms long   */
 func getRandomTimeout(minDuration int) time.Duration {

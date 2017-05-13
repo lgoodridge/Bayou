@@ -92,7 +92,6 @@ type AntiEntropyArgs struct {
 /* AntiEntropy RPC reply structure */
 type AntiEntropyReply struct {
     Succeeded     bool
-    MustUpdateLog bool
     CommitSet     []LogEntry
     TentativeSet  []LogEntry
     UndoSet       []LogEntry
@@ -192,66 +191,25 @@ func NewBayouServer(id int, peers []*rpc.Client, commitDB *BayouDB,
 func (server *BayouServer) Start() {
     antiEntropyTimeout := getRandomTimeout(ANTI_ENTROPY_TIMEOUT_MIN)
     server.antiEntropyTimer = time.AfterFunc(antiEntropyTimeout, func() {
-
         // If this server isn't even active anymore, quit
         if !server.isActive {
             return
         }
 
+        server.performAntiEntropy()
         server.resetAntiEntropyTimer()
-
-        // Choose server to send AntiEntropy RPC to
-        targetID := server.id
-        for ; targetID != server.id; targetID = randomIntn(len(server.peers)){}
-
-        // Get the log entries to send to target server
-        omitTimestamp := server.Omitted[targetID]
-        commitStartIndex := getLengthAtTime(server.CommitLog, omitTimestamp)
-        commitSet := make([]LogEntry, len(server.CommitLog) - commitStartIndex)
-        copy(commitSet, server.CommitLog[commitStartIndex:])
-        tentativeSet := make([]LogEntry, len(server.TentativeLog))
-        copy(tentativeSet, server.TentativeLog)
-        undoSet := make([]LogEntry, len(server.UndoLog))
-        copy(undoSet, server.UndoLog)
-
-        antiEntropyArgs := AntiEntropyArgs{server.id, commitSet,
-                tentativeSet, undoSet, omitTimestamp}
-        var antiEntropyReply AntiEntropyReply
-
-        // Actually send AntiEntropy RPC
-        err := server.peers[targetID].Call("BayouServer.AntiEntropy",
-                &antiEntropyArgs, &antiEntropyReply)
-        if err != nil {
-            debugf("AntiEntropy %d => %d Failed: %s", server.id,
-                    targetID, err.Error())
-            return
-        }
-
-        // If AntiEntropy failed, set omit vector to the resolved timestamp
-        if !antiEntropyReply.Succeeded {
-            debugf("Server #%d: Omit timestamps mismatched. Setting to " +
-                    "resolved minimum: %s", server.id,
-                    antiEntropyReply.OmitTimestamp.String())
-            server.Omitted[targetID] = antiEntropyReply.OmitTimestamp
-            return
-        }
-
-        // Resolve logs according to reply, if necessary
-        if antiEntropyReply.MustUpdateLog {
-            server.matchLog(antiEntropyReply.CommitSet,
-                    antiEntropyReply.TentativeSet, antiEntropyReply.UndoSet,
-                    antiEntropyReply.OmitTimestamp)
-            server.Omitted[targetID] = antiEntropyReply.OmitTimestamp
-        }
     })
 
-    debugf("Server $%d begun", server.id)
+    debugf("Server #%d begun", server.id)
 }
 
 /* "Kills" a Bayou Server, ending inter-server *
  * communication and RPC handling              */
 func (server *BayouServer) Kill() {
     server.isActive = false
+    if server.antiEntropyTimer != nil {
+        server.antiEntropyTimer.Stop()
+    }
     server.rpcListener.Close()
 }
 
@@ -286,7 +244,6 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
                 "Receiver: %s\nSender: %s", server.id, args.SenderID,
                 myOmitTimestamp.String(), args.OmitTimestamp.String())
         reply.Succeeded = false
-        reply.MustUpdateLog = false
         reply.CommitSet = nil
         reply.TentativeSet = nil
         reply.UndoSet = nil
@@ -321,6 +278,19 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
         useMyLog = otherTentativeClock.LessThan(server.tentativeClock)
     }
 
+    // Save tentative writes/undos from the unchosen log
+    var tentativeSet []LogEntry
+    var undoSet []LogEntry
+    if useMyLog {
+        tentativeSet = args.TentativeSet
+        undoSet = args.UndoSet
+    } else {
+        tentativeSet = make([]LogEntry, len(server.TentativeLog))
+        copy(tentativeSet, server.TentativeLog)
+        undoSet = make([]LogEntry, len(server.UndoLog))
+        copy(undoSet, server.UndoLog)
+    }
+
     targetIndex := getLengthAtTime(server.CommitLog, args.OmitTimestamp)
     sharedEndIndex := len(server.CommitLog)
     if useMyLog {
@@ -348,21 +318,30 @@ func (server *BayouServer) AntiEntropy(args *AntiEntropyArgs,
     }
     server.Omitted[args.SenderID] = server.commitClock
 
-    // Respond with the chosen results
-    if useMyLog {
-        reply.CommitSet = make([]LogEntry, len(server.CommitLog) - targetIndex)
-        copy(reply.CommitSet, server.CommitLog[targetIndex:])
-        reply.TentativeSet = make([]LogEntry, len(server.TentativeLog))
-        copy(reply.TentativeSet, server.TentativeLog)
-        reply.UndoSet = make([]LogEntry, len(server.UndoLog))
-        copy(reply.UndoSet, server.UndoLog)
-    } else {
-        reply.CommitSet = nil
-        reply.TentativeSet = nil
-        reply.UndoSet = nil
+    seenWritesMap := make(map[int]bool)
+    for _, entry := range server.CommitLog {
+        seenWritesMap[entry.WriteID] = true
     }
+    for _, entry := range server.TentativeLog {
+        seenWritesMap[entry.WriteID] = true
+    }
+
+    // Apply all unseen tentative writes from the unchosen log
+    for idx, entry := range tentativeSet {
+        if _, seenWrite := seenWritesMap[entry.WriteID]; !seenWrite {
+            server.applyWrite(tentativeSet[idx], undoSet[idx])
+        }
+    }
+
+    // Respond with the chosen results
+    reply.CommitSet = make([]LogEntry, len(server.CommitLog) - targetIndex)
+    copy(reply.CommitSet, server.CommitLog[targetIndex:])
+    reply.TentativeSet = make([]LogEntry, len(server.TentativeLog))
+    copy(reply.TentativeSet, server.TentativeLog)
+    reply.UndoSet = make([]LogEntry, len(server.UndoLog))
+    copy(reply.UndoSet, server.UndoLog)
+
     reply.Succeeded = true
-    reply.MustUpdateLog = useMyLog
     reply.OmitTimestamp = server.commitClock
     return nil
 }
@@ -387,8 +366,10 @@ func (server *BayouServer) Read(args *ReadArgs, reply *ReadReply) error {
         return errors.New(fmt.Sprintf("Server #%d is not active", server.id))
     }
 
+    server.logLock.Lock()
     server.dbLock.Lock()
     defer server.dbLock.Unlock()
+    defer server.logLock.Unlock()
 
     var db *BayouDB
     if (args.FromCommit) {
@@ -410,6 +391,9 @@ func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) error {
         return errors.New(fmt.Sprintf("Server #%d is not active", server.id))
     }
 
+    server.logLock.Lock()
+    defer server.logLock.Unlock()
+
     // Update appropiate vector clock(s)
     server.tentativeClock.Inc(server.id)
     writeClock := server.tentativeClock
@@ -421,31 +405,10 @@ func (server *BayouServer) Write(args *WriteArgs, reply *WriteReply) error {
     // Create entries for each of the logs
     writeEntry := NewLogEntry(args.WriteID, writeClock, args.Query,
             args.Check, args.Merge)
-    undoEntry := NewLogEntry(args.WriteID, writeClock, args.Undo, "", "")
+    undoEntry := NewLogEntry(args.WriteID, writeClock, args.Undo,
+            getBoolQuery(true), getBoolQuery(false))
 
-    server.logLock.Lock()
-    defer server.logLock.Unlock()
-
-    // If this server is the primary, commit the write immediately,
-    // else add it as a tentative write and its undo operation to the undo log
-    if server.IsPrimary {
-        server.CommitLog = append(server.CommitLog, writeEntry)
-    } else {
-        server.TentativeLog = append(server.TentativeLog, writeEntry)
-        server.UndoLog = append(server.UndoLog, undoEntry)
-    }
-
-    // Apply write to database(s) and send unresolved conflicts to error log
-    hasConflict, resolved := server.applyToDB(false, args.Query,
-            args.Check, args.Merge)
-    if hasConflict && !resolved {
-        server.ErrorLog = append(server.ErrorLog, writeEntry)
-    }
-    if server.IsPrimary {
-        server.applyToDB(true, args.Query, args.Check, args.Merge)
-    }
-    server.savePersist()
-
+    hasConflict, resolved := server.applyWrite(writeEntry, undoEntry)
     reply.HasConflict = hasConflict
     reply.WasResolved = resolved
     return nil
@@ -502,6 +465,92 @@ func (server *BayouServer) startRPCServer(port int) {
     go http.Serve(server.rpcListener, newMux)
 
     debugf("Server #%d listening on port %d", server.id, port)
+}
+
+/* Sends an AntiEntropy RPC and handles the reply */
+func (server *BayouServer) performAntiEntropy() {
+    // Choose server to send AntiEntropy RPC to
+    targetID := server.id
+    for ; targetID == server.id; targetID = randomIntn(len(server.peers)){}
+
+    server.logLock.Lock()
+    defer server.logLock.Unlock()
+
+    // Get the log entries to send to target server
+    omitTimestamp := server.Omitted[targetID]
+    commitStartIndex := getLengthAtTime(server.CommitLog, omitTimestamp)
+    commitSet := make([]LogEntry, len(server.CommitLog) - commitStartIndex)
+    copy(commitSet, server.CommitLog[commitStartIndex:])
+    tentativeSet := make([]LogEntry, len(server.TentativeLog))
+    copy(tentativeSet, server.TentativeLog)
+    undoSet := make([]LogEntry, len(server.UndoLog))
+    copy(undoSet, server.UndoLog)
+
+    antiEntropyArgs := AntiEntropyArgs{server.id, commitSet,
+            tentativeSet, undoSet, omitTimestamp}
+    var antiEntropyReply AntiEntropyReply
+
+    // Actually send AntiEntropy RPC with timeout
+    timeout := time.Duration(ANTI_ENTROPY_TIMEOUT_MIN * 2) * time.Millisecond
+    errchan := make(chan error, 1)
+    go func() {
+        errchan <- server.peers[targetID].Call("BayouServer.AntiEntropy",
+                &antiEntropyArgs, &antiEntropyReply)
+    }()
+    select {
+    case err := <-errchan:
+        if err != nil {
+            debugf("AntiEntropy %d => %d Failed: %s", server.id,
+                    targetID, err.Error())
+            return
+        }
+    case <-time.After(timeout):
+        debugf("AntiEntropy %d => %d Failed: Timeout", server.id, targetID)
+        return
+    }
+
+    // If AntiEntropy failed, set omit vector to the resolved timestamp
+    if !antiEntropyReply.Succeeded {
+        debugf("Server #%d: Omit timestamps mismatched. Setting to " +
+                "resolved minimum: %s", server.id,
+                antiEntropyReply.OmitTimestamp.String())
+        server.Omitted[targetID] = antiEntropyReply.OmitTimestamp
+        return
+    }
+
+    // Resolve logs according to reply, if necessary
+    server.matchLog(antiEntropyReply.CommitSet,
+            antiEntropyReply.TentativeSet, antiEntropyReply.UndoSet,
+            antiEntropyReply.OmitTimestamp)
+    server.Omitted[targetID] = antiEntropyReply.OmitTimestamp
+}
+
+/* Adds the write to the appropiate log(s), and applies it *
+ * to the appropiate database(s), returning whether there  *
+ * was a conflict, and if so, if it was resolved          */
+func (server *BayouServer) applyWrite(writeEntry LogEntry,
+        undoEntry LogEntry) (hasConflict bool, resolved bool) {
+    // If this server is the primary, commit the write immediately,
+    // else add it as a tentative write and its undo operation to the undo log
+    if server.IsPrimary {
+        server.CommitLog = append(server.CommitLog, writeEntry)
+    } else {
+        server.TentativeLog = append(server.TentativeLog, writeEntry)
+        server.UndoLog = append(server.UndoLog, undoEntry)
+    }
+
+    // Apply write to database(s) and send unresolved conflicts to error log
+    hasConflict, resolved = server.applyToDB(false, writeEntry.Query,
+            writeEntry.Check, writeEntry.Merge)
+    if hasConflict && !resolved {
+        server.ErrorLog = append(server.ErrorLog, writeEntry)
+    }
+    if server.IsPrimary {
+        server.applyToDB(true, writeEntry.Query, writeEntry.Check,
+                writeEntry.Merge)
+    }
+    server.savePersist()
+    return
 }
 
 /* Rollsback the database, and applies log entries so that *
@@ -575,19 +624,15 @@ func (server *BayouServer) applyToDB(toCommit bool, query string,
 /* Rolls back the full view to the state  *
  * it possessed at the provided timestamp */
 func (server *BayouServer) rollbackDB(rollbackTime VectorClock) {
-    server.dbLock.Lock()
-    defer server.dbLock.Unlock()
-
     // Apply undo operations until we find the target
     targetIndex := -1
     for i := len(server.TentativeLog) - 1; i >= 0; i-- {
-        if rollbackTime.LessThan(server.TentativeLog[i].Timestamp) {
+        if !rollbackTime.LessThan(server.TentativeLog[i].Timestamp) {
             targetIndex = i
             break
         }
-        server.applyToDB(false, server.UndoLog[targetIndex].Query,
-            server.UndoLog[targetIndex].Check,
-            server.UndoLog[targetIndex].Merge)
+        server.applyToDB(false, server.UndoLog[i].Query,
+                server.UndoLog[i].Check, server.UndoLog[i].Merge)
     }
 
     // If all tentative writes occurred after the target time, and

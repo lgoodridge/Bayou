@@ -35,7 +35,6 @@ func InitDB(filepath string) *BayouDB {
     if err != nil { Log.Fatal(err) }
     if sqlDB == nil { Log.Fatal("db nil") }
     db := &BayouDB{sqlDB}
-    // TODO: Should probably move this
     db.CreateTable()
     return db;
 }

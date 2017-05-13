@@ -232,8 +232,12 @@ func assertRoomListsEqual(t *testing.T, rooms []Room, exp []Room,
 }
 
 /* Fails provided test if database contents *
- * do not match the provided Room list      */
-func assertDBContentsEqual(t *testing.T, db *BayouDB, exp []Room) {
+ * do not match the provided Room list      *
+ * Acquires provided lock before reading    */
+func assertDBContentsEqual(t *testing.T, lock *sync.Mutex,
+        db *BayouDB, exp []Room) {
+    lock.Lock()
+    defer lock.Unlock()
     result := db.Read(getReadAllQuery())
     rooms := deserializeRooms(result)
     assertRoomListsEqual(t, rooms, exp, "Database does not contain " +
@@ -280,6 +284,13 @@ func createNetwork(testName string, serverPorts []int,
 func removeNetwork(servers []*BayouServer, clients []*rpc.Client) {
     cleanupRPCClients(clients)
     cleanupServers(servers)
+}
+
+/* Starts inter-server communication on the provided network */
+func startNetworkComm(servers []*BayouServer) {
+    for _, server := range servers {
+        server.Start()
+    }
 }
 
 /* Tests server RPC functionality */
@@ -370,7 +381,8 @@ func TestUnitServerReadWrite(t *testing.T) {
     vclock := NewVectorClock(numClients)
     vclock.Inc(server.id)
     writeEntry := NewLogEntry(0, vclock, query, check, merge)
-    undoEntry := NewLogEntry(0, vclock, undo, "", "")
+    undoEntry := NewLogEntry(0, vclock, undo, getBoolQuery(true),
+            getBoolQuery(false))
 
     // Test a single uncommitted write
     writeArgs := &WriteArgs{0, query, undo, check, merge}
@@ -386,8 +398,8 @@ func TestUnitServerReadWrite(t *testing.T) {
             "to error log.")
     assertLogsEqual(t, server.TentativeLog, []LogEntry{writeEntry}, true)
     assertLogsEqual(t, server.UndoLog, []LogEntry{undoEntry}, true)
-    assertDBContentsEqual(t, server.commitDB, []Room{})
-    assertDBContentsEqual(t, server.fullDB, rooms)
+    assertDBContentsEqual(t, server.logLock, server.commitDB, []Room{})
+    assertDBContentsEqual(t, server.logLock, server.fullDB, rooms)
 
     // Test a conflicting, uncomitted write
     room = Room{"RW1", createDate(1, 0), createDate(1, 1)}
@@ -397,7 +409,8 @@ func TestUnitServerReadWrite(t *testing.T) {
     merge = getBoolQuery(true)
     vclock.Inc(server.id)
     writeEntry2 := NewLogEntry(1, vclock, query, check, merge)
-    undoEntry2 := NewLogEntry(1, vclock, undo, "", "")
+    undoEntry2 := NewLogEntry(1, vclock, undo, getBoolQuery(true),
+            getBoolQuery(false))
 
     writeArgs = &WriteArgs{1, query, undo, check, merge}
     writeReply = WriteReply{}
@@ -414,10 +427,10 @@ func TestUnitServerReadWrite(t *testing.T) {
             []LogEntry{writeEntry, writeEntry2}, true)
     assertLogsEqual(t, server.UndoLog,
             []LogEntry{undoEntry, undoEntry2}, true)
-    assertDBContentsEqual(t, server.commitDB, []Room{})
+    assertDBContentsEqual(t, server.logLock, server.commitDB, []Room{})
     // Note: DB does not change from last test because
     // write conflicts and merge query does not insert anything
-    assertDBContentsEqual(t, server.fullDB, rooms)
+    assertDBContentsEqual(t, server.logLock, server.fullDB, rooms)
 
     // Test a conflicting, unresolvable uncomitted write
     room = Room{"RW2", createDate(2, 0), createDate(2, 1)}
@@ -426,7 +439,8 @@ func TestUnitServerReadWrite(t *testing.T) {
     merge = getBoolQuery(false)
     vclock.Inc(server.id)
     writeEntry3 := NewLogEntry(2, vclock, query, check, merge)
-    undoEntry3 := NewLogEntry(2, vclock, undo, "", "")
+    undoEntry3 := NewLogEntry(2, vclock, undo, getBoolQuery(true),
+            getBoolQuery(false))
 
     writeArgs = &WriteArgs{2, query, undo, check, merge}
     writeReply = WriteReply{}
@@ -444,9 +458,9 @@ func TestUnitServerReadWrite(t *testing.T) {
             []LogEntry{writeEntry, writeEntry2, writeEntry3}, true)
     assertLogsEqual(t, server.UndoLog,
             []LogEntry{undoEntry, undoEntry2, undoEntry3}, true)
-    assertDBContentsEqual(t, server.commitDB, []Room{})
+    assertDBContentsEqual(t, server.logLock, server.commitDB, []Room{})
     // Note: As explained above, the DB should not change
-    assertDBContentsEqual(t, server.fullDB, rooms)
+    assertDBContentsEqual(t, server.logLock, server.fullDB, rooms)
 
     // Test a committed write
     room = Room{"RW3", createDate(3, 0), createDate(3, 1)}
@@ -472,10 +486,10 @@ func TestUnitServerReadWrite(t *testing.T) {
             []LogEntry{writeEntry, writeEntry2, writeEntry3}, true)
     assertLogsEqual(t, server.UndoLog,
             []LogEntry{undoEntry, undoEntry2, undoEntry3}, true)
-    assertDBContentsEqual(t, server.commitDB, []Room{room})
+    assertDBContentsEqual(t, server.logLock, server.commitDB, []Room{room})
     // Note: committed writes are added to committed and full DBs,
     // which is why expect the room to appear in the ful DB
-    assertDBContentsEqual(t, server.fullDB, rooms)
+    assertDBContentsEqual(t, server.logLock, server.fullDB, rooms)
 
     // PART 2: TESTING READ RPCs
 
@@ -561,7 +575,7 @@ func TestUnitServerReadWrite(t *testing.T) {
                 createDate(i, 1)}
         rooms = append(rooms, newroom)
     }
-    assertDBContentsEqual(t, server.fullDB, rooms)
+    assertDBContentsEqual(t, server.logLock, server.fullDB, rooms)
 
     query = getReadAllQuery()
     readArgArr := make([]ReadArgs, numClients)
@@ -589,7 +603,61 @@ func TestUnitServerReadWrite(t *testing.T) {
 
 /* Tests server Anti-Entropy communication */
 func TestUnitServerAntiEntropy(t *testing.T) {
-    Log.Println("Test not implemented.")
+    numClients := 5
+    numWrites := 10
+    startPort := 1114
+
+    // Note: numWrites should be <= 10, because due to the way
+    // assertDBContentsEqual works, log entries of "10" and above
+    // appear in an unexpected order and fail. This is a limitation
+    // of the testing environment, not the implementation
+
+    serverPorts := make([]int, numClients)
+    clientPorts := make([]int, numClients)
+    for i := 0; i < numClients; i++ {
+        serverPorts[i] = startPort + i
+        clientPorts[i] = startPort + i
+    }
+
+    servers, clients := createNetwork("test_antientropy",
+            serverPorts, clientPorts)
+    defer removeNetwork(servers, clients)
+    startNetworkComm(servers)
+
+    debugf("TESTING ANTI-ENTROPY: DELAYS MAY FOLLOW")
+
+    startID := randomIntn(numClients)
+    rooms := []Room{}
+    check := getBoolQuery(true)
+    merge := getBoolQuery(false)
+
+    // Perform a series of writes on random servers
+    for i := 0; i < numWrites; i++ {
+        room := Room{fmt.Sprintf("AEU%d", i), createDate(i, 0),
+                createDate(i, 1)}
+        rooms = append(rooms, room)
+        query := getInsertQuery(room)
+        undo := getDeleteQuery(room)
+        writeArgs := &WriteArgs{i, query, undo, check, merge}
+        var writeReply WriteReply
+        serverID := (startID + i) % numClients
+        err := clients[serverID].Call("BayouServer.Write",
+                writeArgs, &writeReply)
+        ensureNoError(t, err, "Write RPC failed: ")
+        assert(t, !writeReply.HasConflict, "Write falesly returned conflict.")
+        assert(t, writeReply.WasResolved, "Write was not resolved.")
+    }
+
+    // Wait for anti-entropy to occur
+    sleepTime := ANTI_ENTROPY_TIMEOUT_MIN * numClients * 2
+    sleep(sleepTime, true)
+
+    // Ensure all servers have received all writes
+    for _, server := range servers {
+        assert(t, len(server.CommitLog) == 0, "Uncomitted writes changed " +
+                "commit log")
+        assertDBContentsEqual(t, server.logLock, server.fullDB, rooms)
+    }
 }
 
 /* Tests server persistence and recovery */
@@ -640,13 +708,6 @@ func removeBayouNetwork(servers []*BayouServer, clients []*BayouClient) {
     cleanupServers(servers)
 }
 
-/* Starts inter-server communication on the provided network */
-func startBayouNetworkComm(servers []*BayouServer) {
-    for _, server := range servers {
-        server.Start()
-    }
-}
-
 /* Tests client functionality */
 func TestUnitClient(t *testing.T) {
     servers, clients := createBayouNetwork("test_client", 1)
@@ -662,16 +723,4 @@ func TestUnitClient(t *testing.T) {
     // Check that other room is not claimed
     room = clients[0].CheckRoom("Frist", 2, 1, false)
     assert(t, room.Name == "-1", "Room is broken")
-}
-
-/* Tests that a Bayou network     *
- * eventually reaches consistency */
-func TestUnitNetworkBasic(t *testing.T) {
-    Log.Println("Test not implemented.")
-}
-
-/* Tests that a Bayou network eventually reaches *
- * consistency in the face of network partitions */
-func TestUnitNetworkPartition(t *testing.T) {
-    Log.Println("Test not implemented.")
 }
